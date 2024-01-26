@@ -1,32 +1,32 @@
 """Interface and implementations of label types for a reward model."""
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict
 
-import tensorflow as tf
+import torch
+from torch.nn import functional as F
 
 from lm_human_preferences.utils.core import Schema, pearson_r
 
 
 class LabelType(ABC):
     @abstractmethod
-    def label_schemas(self) -> Dict[str, Schema]:
+    def label_schemas(self) -> dict[str, Schema]:
         """Schema for the human annotations."""
 
     @abstractmethod
-    def target_scales(self, labels: Dict[str, tf.Tensor]) -> Optional[tf.Tensor]:
+    def target_scales(self, labels: dict[str, torch.Tensor]) -> torch.Tensor | None:
         """Extracts scalars out of labels whose scale corresponds to the reward model's output.
            May be none if the labels have no such information."""
 
     @abstractmethod
-    def loss(self, reward_model, labels: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
+    def loss(self, reward_model, labels: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """
         :param labels: the questions with their labels
         :returns: a dict of stats, including 'loss' for the actual loss
         """
 
     @abstractmethod
-    def question_schemas(self, *, query_length, response_length) -> Dict[str, Schema]:
+    def question_schemas(self, *, query_length, response_length) -> dict[str, Schema]:
         """Schema for the questions associated with this LabelType."""
 
 
@@ -36,22 +36,21 @@ class PickBest(LabelType):
         self.num_responses = num_responses
 
     def label_schemas(self):
-        return dict(best=Schema(tf.int32, ()))
+        return dict(best=Schema(torch.int32, ()))
 
     def target_scales(self, labels):
         return None
 
     def loss(self, reward_model, labels):
-        logits = tf.stack([reward_model(labels['query'], labels[f'sample{i}'])
-                         for i in range(self.num_responses)], axis=1)
-        error = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
-            labels=labels['best'], logits=logits))
+        logits = torch.stack([reward_model(labels['query'], labels[f'sample{i}'])
+                         for i in range(self.num_responses)], dim=1)
+        error = F.cross_entropy(logits, target=labels['best'])
         return dict(loss=error, error=error)
 
-    def question_schemas(self, *, query_length, response_length) -> Dict[str, Schema]:
+    def question_schemas(self, *, query_length, response_length) -> dict[str, Schema]:
         return dict(
-            query=Schema(tf.int32, (query_length,)),
-            **{f"sample{i}": Schema(tf.int32, (response_length,)) for i in range(self.num_responses)}
+            query=Schema(torch.int32, (query_length,)),
+            **{f"sample{i}": Schema(torch.int32, (response_length,)) for i in range(self.num_responses)}
         )
 
 
@@ -62,7 +61,7 @@ class ScalarRating(LabelType):
 
     def label_schemas(self):
         return dict(
-            score=Schema(tf.float32, ()))
+            score=Schema(torch.float, ()))
 
     def target_scales(self, labels):
         return labels['score']
@@ -70,23 +69,23 @@ class ScalarRating(LabelType):
     def loss(self, reward_model, labels):
         predicted = reward_model(labels['query'], labels['sample'])
         labels = labels['score']
-        error = tf.reduce_mean((labels - predicted) ** 2, axis=0)
-        label_mean, label_var = tf.nn.moments(labels, axes=[0])
+        error = torch.mean((labels - predicted) ** 2, dim=0)
+        label_var, label_mean = torch.var_mean(labels, dim=0, correction=0)  # tensorflow has no Bessel's correction
         corr = pearson_r(labels, predicted)
         return dict(loss=error, error=error,
                     label_mean=label_mean, label_var=label_var, corr=corr)
 
-    def question_schemas(self, *, query_length, response_length) -> Dict[str, Schema]:
+    def question_schemas(self, *, query_length, response_length) -> dict[str, Schema]:
         return dict(
-            query=Schema(tf.int32, (query_length,)),
-            sample=Schema(tf.int32, (response_length,)),
+            query=Schema(torch.int32, (query_length,)),
+            sample=Schema(torch.int32, (response_length,)),
         )
 
 
 class ScalarComparison(LabelType):
     """Give a scalar indicating difference between two responses."""
     def label_schemas(self):
-        return dict(difference=Schema(tf.float32, ()))
+        return dict(difference=Schema(torch.float, ()))
 
     def target_scales(self, labels):
         # Divide by two to get something with the same variance as the trained reward model output
@@ -98,14 +97,14 @@ class ScalarComparison(LabelType):
 
         differences = labels['difference']
         predicted_differences = outputs1 - outputs0
-        error = tf.reduce_mean((differences - predicted_differences)**2, axis=0)
+        error = torch.mean((differences - predicted_differences)**2, dim=0)
         return dict(loss=error, error=error)
 
-    def question_schemas(self, *, query_length, response_length) -> Dict[str, Schema]:
+    def question_schemas(self, *, query_length, response_length) -> dict[str, Schema]:
         return dict(
-            query=Schema(tf.int32, (query_length,)),
-            sample0=Schema(tf.int32, (response_length,)),
-            sample1=Schema(tf.int32, (response_length,)),
+            query=Schema(torch.int32, (query_length,)),
+            sample0=Schema(torch.int32, (response_length,)),
+            sample1=Schema(torch.int32, (response_length,)),
         )
 
 
