@@ -14,7 +14,7 @@ from lm_human_preferences import label_types, lm_tasks, rewards
 from lm_human_preferences.language import trained_models
 from lm_human_preferences.policy import Policy
 from lm_human_preferences.utils import core as utils
-from lm_human_preferences.utils import gcs, hyperparams
+from lm_human_preferences.utils import azure, hyperparams
 from lm_human_preferences.utils.core import Schema
 
 
@@ -78,7 +78,7 @@ def download_labels(source, label_type, question_schemas, total_labels, comm):
 
     # TODO: download on just one rank?  then do: labels = utils.mpi_bcast_tensor_dict(labels, comm=comm)
     if source != 'test':
-        with open(gcs.download_file_cached(source, comm=comm)) as f:
+        with open(azure.download_file_cached(source, comm=comm)) as f:
             results = json.load(f)
             print('Num labels found in source:', len(results))
     else:
