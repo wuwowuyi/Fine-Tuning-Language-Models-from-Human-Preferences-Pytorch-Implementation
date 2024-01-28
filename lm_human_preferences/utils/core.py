@@ -12,17 +12,13 @@ from functools import lru_cache, partial, wraps
 from typing import Any, Dict, Tuple, Optional
 
 import numpy as np
-import tensorflow as tf
-from mpi4py import MPI
-
-try:
-    import horovod.tensorflow as hvd
-    hvd.init()
-except:
-    hvd = None
+import torch
 
 
-nest = tf.contrib.framework.nest
+#from mpi4py import MPI
+
+
+#nest = tf.contrib.framework.nest
 
 
 def nvidia_gpu_count():
@@ -207,18 +203,13 @@ class SampleBuffer:
     """
 
     def __init__(self, *, capacity: int, schemas: Dict[str,Schema], name=None) -> None:
-        with tf.compat.v1.variable_scope(name, 'buffer', use_resource=True, initializer=tf.compat.v1.zeros_initializer):
-            self._capacity = tf.constant(capacity, dtype=tf.int32, name='capacity')
-            self._total = tf.compat.v1.get_variable(
-                'total', dtype=tf.int32, shape=(), trainable=False, collections=[tf.compat.v1.GraphKeys.LOCAL_VARIABLES],
-            )
-            self._vars = {
-                n: tf.compat.v1.get_variable(
-                    n, dtype=s.dtype, shape=(capacity,) + s.shape, trainable=False,
-                    collections=[tf.compat.v1.GraphKeys.LOCAL_VARIABLES],
-                )
-                for n,s in schemas.items()
-            }
+        # TODO: place on CPU?
+        self._capacity = capacity
+        self._total = 0
+        self._vars = {
+            n: torch.zeros((capacity,) + s.shape, dtype=s.dtype)
+            for n, s in schemas.items()
+        }
 
     def add(self, **data):
         """Add new data to the end of the buffer, dropping old data if we exceed capacity."""
@@ -226,47 +217,47 @@ class SampleBuffer:
         if data.keys() != self._vars.keys():
             raise ValueError('data.keys() = %s != %s' % (sorted(data.keys()), sorted(self._vars.keys())))
         first = next(iter(data.values()))
-        pre = first.shape[:1]
+        pre = first.shape[:1]  # torch.Size
         for k, d in data.items():
             try:
-                d.shape.assert_is_compatible_with(pre.concatenate(self._vars[k].shape[1:]))
+                d.shape == (pre + self._vars[k].shape[1:])
             except ValueError as e:
                 raise ValueError('%s, key %s' % (e, k))
+
         # Enqueue
-        n = tf.shape(first)[0]
+        n = first.shape[0]
         capacity = self._capacity
-        i0 = (self._total.assign_add(n) - n) % capacity
-        i0n = i0 + n
-        i1 = tf.minimum(i0n, capacity)
-        i2 = i1 % capacity
-        i3 = i0n % capacity
-        slices = slice(i0, i1), slice(i2, i3)
-        sizes = tf.stack([i1 - i0, i3 - i2])
-        assigns = [self._vars[k][s].assign(part)
-                   for k,d in data.items()
-                   for s, part in zip(slices, tf.split(d, sizes))]
-        return tf.group(assigns)
+        self._total += n
+        i0 = (self._total - n) % capacity  # first index of new data item
+        i0n = i0 + n  # total #items to deal with
+        i1 = min(i0n, capacity)  # last index of new data item (exclusive)
+        i2 = i1 % capacity  # i1 if i0n <= capacity else 0
+        i3 = i0n % capacity  # i1 if i0n <= capacity else i0n % capacity
+        for k, d in data.items():
+            p1, p2 = torch.split(d, [i1 - i0, i3 - i2])
+            self._vars[k][i0:i1] = p1
+            self._vars[k][i2:i3] = p2
 
     def total(self):
         """Total number of entries ever added, including those already discarded."""
-        return self._total.read_value()
+        return self._total
 
     def size(self):
         """Current number of entries."""
-        return tf.minimum(self.total(), self._capacity)
+        return min(self.total(), self._capacity)
 
     def read(self, indices):
         """indices: A 1-D Tensor of indices to read from. Each index must be less than
         capacity."""
-        return {k: v.sparse_read(indices) for k,v in self._vars.items()}
+        return {k: v[indices] for k, v in self._vars.items()}
 
     def data(self):
-        return {k: v[:self.size()] for k,v in self._vars.items()}
+        return {k: v[:self.size()] for k, v in self._vars.items()}
 
     def sample(self, n, seed=None):
         """Sample n entries with replacement."""
         size = self.size()
-        indices = tf.random.uniform([n], maxval=size, dtype=tf.int32, seed=seed)
+        indices = torch.randint(size, (n,))
         return self.read(indices)
 
     def write(self, indices, updates):
@@ -274,16 +265,12 @@ class SampleBuffer:
         indices: A 1-D Tensor of indices to write to. Each index must be less than `capacity`.
         update: A dictionary of new values, where each entry is a tensor with the same length as `indices`.
         """
-        ops = []
         for k, v in updates.items():
-            ops.append(self._vars[k].scatter_update(tf.IndexedSlices(v, tf.cast(indices, dtype=tf.int32))))
-        return tf.group(*ops)
+            self._vars[k][indices] = v
 
     def write_add(self, indices, deltas):
-        ops = []
         for k, d in deltas.items():
-            ops.append(self._vars[k].scatter_add(tf.IndexedSlices(d, tf.cast(indices, dtype=tf.int32))))
-        return tf.group(*ops)
+            self._vars[k][indices] += d
 
 
 def entropy_from_logits(logits):

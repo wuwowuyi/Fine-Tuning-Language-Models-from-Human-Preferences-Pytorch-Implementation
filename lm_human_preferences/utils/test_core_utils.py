@@ -2,7 +2,7 @@
 """utils tests"""
 
 import numpy as np
-import tensorflow as tf
+import torch
 
 from lm_human_preferences.utils import core as utils
 
@@ -35,26 +35,28 @@ def test_expand_tile():
                 assert np.all(np.expand_dims(data, axis=axis) == y)
 
 
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+
 def test_sample_buffer():
+    set_seed(7)
     capacity = 100
     batch = 17
     lots = 100
-    with tf.Graph().as_default(), tf.compat.v1.Session() as sess:
-        buffer = utils.SampleBuffer(capacity=capacity, schemas=dict(x=utils.Schema(tf.int32, ())))
-        tf.compat.v1.variables_initializer(tf.compat.v1.global_variables() + tf.compat.v1.local_variables()).run()
-        i_p = tf.compat.v1.placeholder(dtype=tf.int32, shape=())
-        add = buffer.add(x=batch * i_p + tf.range(batch))
-        sample = buffer.sample(lots, seed=7)['x']
+    buffer = utils.SampleBuffer(capacity=capacity, schemas=dict(x=utils.Schema(torch.int32, ())))
+    for i in range(20):
+        buffer.add(x=torch.arange(batch) + batch * i)
+        samples = buffer.sample(lots)['x']
+        hi = batch * (i + 1)
+        lo = max(0, hi - capacity)
+        assert lo <= samples.min() <= lo + 3
+        assert hi - 5 <= samples.max() < hi
         all_data_1 = buffer.data()
-        all_data_2 = buffer.read(tf.range(buffer.size()))
-        for i in range(20):
-            add.run(feed_dict={i_p: i})
-            samples = sample.eval()
-            hi = batch * (i + 1)
-            lo = max(0, hi - capacity)
-            assert lo <= samples.min() <= lo + 3
-            assert hi - 5 <= samples.max() < hi
-            np.testing.assert_equal(sess.run(all_data_1), sess.run(all_data_2))
+        all_data_2 = buffer.read(torch.arange(buffer.size()))
+        assert torch.equal(all_data_1['x'], all_data_2['x'])
 
 
 def test_where():
