@@ -7,7 +7,7 @@ from functools import partial
 from typing import Optional
 
 import numpy as np
-import tensorflow as tf
+import torch
 from mpi4py import MPI
 
 from lm_human_preferences import label_types, lm_tasks, rewards
@@ -148,16 +148,16 @@ class RewardModelTrainer():
             self.train_batch = train_batch
 
         if self.hparams.normalize_before or self.hparams.normalize_after:
-            @utils.graph_function()
+
             def target_mean_std():
                 """Returns the means and variances to target for each reward model"""
                 # Should be the same on all ranks because the train_buf should be the same
                 scales = self.label_type.target_scales(self.train_buffer.data())
                 if scales is None:
-                    return tf.zeros([]), tf.ones([])
+                    return torch.zeros([]), torch.ones([])
                 else:
-                    mean, var = tf.nn.moments(scales, axes=[0])
-                    return mean, tf.sqrt(var)
+                    var, mean = torch.var_mean(scales, dim=0, correction=0)
+                    return mean, torch.sqrt(var)
             self.target_mean_std = target_mean_std
 
             def stats(query_responses):
