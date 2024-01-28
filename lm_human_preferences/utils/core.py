@@ -186,10 +186,11 @@ class Schema:
     shape: Tuple[Optional[int],...]
 
 
-def add_batch_dim(schemas, batch_size=None):
-    def add_dim(schema):
-        return Schema(dtype=schema.dtype, shape=(batch_size,)+schema.shape)
-    return nest.map_structure(add_dim, schemas)
+# we don't need this function it is for creating placeholders
+# def add_batch_dim(schemas: dict[str, Schema], batch_size=None):
+#     def add_dim(schema):
+#         return Schema(dtype=schema.dtype, shape=(batch_size,)+schema.shape)
+#     return {k: add_dim(s) for k, s in schemas}
 
 
 class SampleBuffer:
@@ -202,7 +203,7 @@ class SampleBuffer:
             buffer = SampleBuffer(...)
     """
 
-    def __init__(self, *, capacity: int, schemas: Dict[str,Schema], name=None) -> None:
+    def __init__(self, *, capacity: int, schemas: dict[str, Schema], name=None) -> None:
         # TODO: place on CPU?
         self._capacity = capacity
         self._total = 0
@@ -217,7 +218,7 @@ class SampleBuffer:
         if data.keys() != self._vars.keys():
             raise ValueError('data.keys() = %s != %s' % (sorted(data.keys()), sorted(self._vars.keys())))
         first = next(iter(data.values()))
-        pre = first.shape[:1]  # torch.Size
+        pre = first.shape[:1]  # torch.Size([batch_size])
         for k, d in data.items():
             try:
                 d.shape == (pre + self._vars[k].shape[1:])
@@ -531,7 +532,8 @@ def variables_on_gpu():
     # )
     return tf.device(device)  # in v2, device must be a string.
 
-
+'''
+# graph_function is not needed for eager execution
 def graph_function(**schemas: Schema):
     def decorate(make_op):
         def make_ph(path, schema):
@@ -558,7 +560,7 @@ def graph_function(**schemas: Schema):
             return tf.compat.v1.get_default_session().run(op, feed_dict=feed, options=run_options, run_metadata=None)
         return run
     return decorate
-
+'''
 
 
 def pearson_r(x: tf.Tensor, y: tf.Tensor):

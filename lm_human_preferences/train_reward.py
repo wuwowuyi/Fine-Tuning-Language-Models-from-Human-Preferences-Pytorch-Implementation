@@ -91,6 +91,8 @@ def download_labels(source, label_type, question_schemas, total_labels, comm):
         ]
 
     assert len(results) >= total_labels
+    # results is a list of items in schemas' format. eg,
+    # [{'query':..., 'sample0':..., 'sample1':..., 'sample2':,, 'sample3':.., 'best':..},...]
     results = results[:total_labels]
     return {k: [a[k] for a in results] for k in schemas.keys()}
 
@@ -198,7 +200,6 @@ class RewardModelTrainer():
                 return [sample_policy_batch() for _ in range(n_batches)]
             self.sample_policy_responses = sample_policy_responses
 
-        @utils.graph_function(labels=utils.add_batch_dim(data_schemas))
         def add_to_buffer(labels):
             return self.train_buffer.add(**labels)
         self.add_to_buffer = add_to_buffer
@@ -245,7 +246,7 @@ class RewardModelTrainer():
             end_index = start_index + self.hparams.batch_size
             all_ranks_indices = train_indices[start_index:end_index]
             our_indices = all_ranks_indices[self.rank::self.num_ranks]
-            lr = (1 - start_index / self.hparams.labels.num_train) * self.hparams.lr
+            lr = (1 - start_index / self.hparams.labels.num_train) * self.hparams.lr  # negative learning rate??
             self.train_batch(our_indices, lr)
 
         if self.hparams.normalize_after:
