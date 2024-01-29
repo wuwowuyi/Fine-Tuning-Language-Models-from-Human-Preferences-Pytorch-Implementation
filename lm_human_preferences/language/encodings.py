@@ -2,10 +2,11 @@
 
 import json
 import os
-import re
+import regex as re
 from functools import lru_cache
 
-import tensorflow as tf
+import tiktoken
+
 
 @lru_cache()
 def bytes_to_unicode():
@@ -114,9 +115,9 @@ class ReversibleEncoder:
         return text
 
 
-def read_file(path):
-    with tf.io.gfile.GFile(path, "rb") as fh:
-        return fh.read()
+# def read_file(path):
+#     with tf.io.gfile.GFile(path, "rb") as fh:
+#         return fh.read()
 
 
 class Encoding:
@@ -158,13 +159,14 @@ class Encoding:
 
             return TestEncoder()
 
-        encoder_dict = json.loads(read_file(self.encoder_path).decode())
-        bpe_data = read_file(self.bpe_path).decode()
-        bpe_merges = [tuple(merge_str.split()) for merge_str in bpe_data.split("\n")[1:-1]]
-        assert len(encoder_dict) == self.n_vocab
-        encoder = ReversibleEncoder(encoder=encoder_dict, bpe_merges=bpe_merges, eot_token=self.eot_token)
-        assert encoder.padding_token >= self.n_vocab
-        return encoder
+        # encoder_dict = json.loads(read_file(self.encoder_path).decode())
+        # bpe_data = read_file(self.bpe_path).decode()
+        # bpe_merges = [tuple(merge_str.split()) for merge_str in bpe_data.split("\n")[1:-1]]
+        # assert len(encoder_dict) == self.n_vocab
+        # encoder = ReversibleEncoder(encoder=encoder_dict, bpe_merges=bpe_merges, eot_token=self.eot_token)
+        # assert encoder.padding_token >= self.n_vocab
+            
+        return tiktoken.get_encoding("gpt2")
 
 
 Main = Encoding("main", n_vocab=50257, eot_token=50256)
