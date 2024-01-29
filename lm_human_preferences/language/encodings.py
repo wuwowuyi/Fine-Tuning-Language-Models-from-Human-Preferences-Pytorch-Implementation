@@ -5,7 +5,7 @@ import os
 import regex as re
 from functools import lru_cache
 
-import tiktoken
+import requests
 
 
 @lru_cache()
@@ -115,9 +115,9 @@ class ReversibleEncoder:
         return text
 
 
-# def read_file(path):
-#     with tf.io.gfile.GFile(path, "rb") as fh:
-#         return fh.read()
+def read_file(url) -> bytes:
+    assert url.startswith("https://")
+    return requests.get(url).content
 
 
 class Encoding:
@@ -136,7 +136,7 @@ class Encoding:
         self.n_vocab = n_vocab
 
         if base_path is None:
-            base_path = os.path.join("gs://gpt-2/encodings", name)
+            base_path = os.path.join("https://openaipublic.blob.core.windows.net/gpt-2/encodings", name)
 
         self.base_path = base_path
         if name != "test":
@@ -159,14 +159,13 @@ class Encoding:
 
             return TestEncoder()
 
-        # encoder_dict = json.loads(read_file(self.encoder_path).decode())
-        # bpe_data = read_file(self.bpe_path).decode()
-        # bpe_merges = [tuple(merge_str.split()) for merge_str in bpe_data.split("\n")[1:-1]]
-        # assert len(encoder_dict) == self.n_vocab
-        # encoder = ReversibleEncoder(encoder=encoder_dict, bpe_merges=bpe_merges, eot_token=self.eot_token)
-        # assert encoder.padding_token >= self.n_vocab
-            
-        return tiktoken.get_encoding("gpt2")
+        encoder_dict = json.loads(read_file(self.encoder_path).decode())
+        bpe_data = read_file(self.bpe_path).decode()
+        bpe_merges = [tuple(merge_str.split()) for merge_str in bpe_data.split("\n")[1:-1]]
+        assert len(encoder_dict) == self.n_vocab
+        encoder = ReversibleEncoder(encoder=encoder_dict, bpe_merges=bpe_merges, eot_token=self.eot_token)
+        assert encoder.padding_token >= self.n_vocab
+        return
 
 
 Main = Encoding("main", n_vocab=50257, eot_token=50256)
