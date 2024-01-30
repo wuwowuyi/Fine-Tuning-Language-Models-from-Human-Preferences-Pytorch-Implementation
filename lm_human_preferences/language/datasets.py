@@ -1,15 +1,24 @@
 import random
-from typing import Dict
 
-import tensorflow as tf
+from torch.utils.data import IterableDataset
 
 from lm_human_preferences.datasets.books import books_generator
 from lm_human_preferences.datasets.cnndm import cnndm_generator
 from lm_human_preferences.datasets.tldr import tldr_generator
 
-_registry: Dict[str, "Dataset"] = {}
+_registry: dict[str, "Dataset"] = {}
+
 
 class Dataset:
+
+    class IterableTokens(IterableDataset):
+
+        def __init__(self, generator):
+            self.generator = generator
+
+        def __iter__(self):
+            return self.generator()
+
     def __init__(
             self,
             name,
@@ -21,7 +30,6 @@ class Dataset:
         _registry[name] = self
 
         self.name = name
-
         self.generator = generator
 
     def tf_dataset(
@@ -42,6 +50,7 @@ class Dataset:
     ):
         if padding_token is None:
             padding_token = encoder.padding_token
+
         def _generator():
             inner_gen = self.generator(mode, seed=seed, shuffle=shuffle, comm=comm)
             for text in inner_gen:
@@ -68,23 +77,9 @@ class Dataset:
 
                 assert len(tokens) == sequence_length
 
-                yield dict(tokens=tokens)
+                yield tokens
 
-        tf_dataset = tf.data.Dataset.from_generator(
-            _generator,
-            output_types=dict(tokens=tf.int32),
-            output_shapes=dict(tokens=(sequence_length,)),
-        )
-        tf_dataset = tf_dataset.repeat(repeat_count)
-
-        if comm is not None:
-            num_shards = comm.Get_size()
-            shard_idx = comm.Get_rank()
-            if num_shards > 1:
-                assert seed is not None
-                tf_dataset = tf_dataset.shard(num_shards, shard_idx)
-
-        return tf_dataset
+        return self.IterableTokens(_generator)
 
 
 def get_dataset(name) -> Dataset:

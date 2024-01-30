@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-import tensorflow as tf
+import torch
+from torch.utils.data import DataLoader
 
 from lm_human_preferences.language import datasets
 from lm_human_preferences.utils import core as utils
@@ -91,17 +92,15 @@ def make_query_sampler(*, hparams: TaskHParams, encoder, batch_size: int, mode='
     else:
         end_token = None
 
+    # NOTE: MPI not supported here. can add support of DDP later.
     data = datasets.get_dataset(hparams.query_dataset).tf_dataset(
         sequence_length=hparams.query_length, mode=mode, comm=comm, encoder=encoder,
         start_token=start_token, end_token=end_token,
     )
-    data = data.map(lambda d: tf.cast(d['tokens'], tf.int32))
-    data = data.batch(batch_size, drop_remainder=True)
-
-    context_iterator = tf.compat.v1.data.make_one_shot_iterator(data)
+    loader = DataLoader(data, batch_size, pin_memory=True, drop_last=True)
+    data_iter = iter(loader)
 
     def sampler(scope=None):
-        with tf.compat.v1.name_scope(scope, 'sample_corpus'):
-            context_tokens = context_iterator.get_next()
-            return dict(tokens=context_tokens)
+        context_tokens = torch.as_tensor(next(data_iter), dtype=torch.int32)
+        return dict(tokens=context_tokens)
     return sampler
