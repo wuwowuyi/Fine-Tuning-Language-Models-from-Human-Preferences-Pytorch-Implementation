@@ -108,15 +108,11 @@ def set_mpi_seed(seed: Optional[int]):
     tf.compat.v1.set_random_seed(seed)
 
 
-def exact_div(a, b):
+def exact_div(a: int, b: int) -> int:
     q = a // b
-    if tf.is_tensor(q):
-        with tf.control_dependencies([tf.debugging.Assert(tf.equal(a, q * b), [a, b])]):
-            return tf.identity(q)
-    else:
-        if a != q * b:
-            raise ValueError('Inexact division: %s / %s = %s' % (a, b, a / b))
-        return q
+    if a != q * b:
+        raise ValueError('Inexact division: %s / %s = %s' % (a, b, a / b))
+    return q
 
 
 def ceil_div(a, b):
