@@ -6,7 +6,7 @@ from functools import lru_cache
 
 from typeguard import check_type
 
-from lm_human_preferences.utils import gcs
+#from lm_human_preferences.utils import gcs
 
 
 class HParams:
@@ -14,7 +14,8 @@ class HParams:
 
     def override_from_json_file(self, filename):
         if filename.startswith('gs://'):
-            hparams_str = gcs.download_contents(filename)
+            #hparams_str = gcs.download_contents(filename)
+            raise ValueError("All files have been moved to Azure. Please download from Azure.")
         else:
             hparams_str = open(filename).read()
         self.parse_json(hparams_str)
