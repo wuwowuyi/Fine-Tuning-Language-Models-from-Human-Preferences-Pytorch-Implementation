@@ -420,7 +420,7 @@ def train(hparams: HParams):
     with tf.Graph().as_default():
         hyperparams.dump(hparams)
 
-        m = trained_models.TrainedModel(hparams.task.policy.initial_model)
+        m = trained_models.TrainedModel(hparams.task.policy.initial_model, run_hparams=hparams.run)
         encoder = m.encoding.get_encoder()
         hyperparams.dump(m.hparams(), name='model_hparams')
 

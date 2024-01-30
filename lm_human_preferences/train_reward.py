@@ -18,6 +18,8 @@ from lm_human_preferences.utils import azure, hyperparams
 from lm_human_preferences.utils.core import Schema
 
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 @dataclass
 class LabelHParams(hyperparams.HParams):
     type: str = None
@@ -31,6 +33,8 @@ class RunHParams(hyperparams.HParams):
     log_interval: int = 10
     save_interval: int = 50
     save_dir: Optional[str] = None
+    device: str = device  # 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc.
+    ckpt: str = 'ckpt.pt'  # checkpoint
 
 @dataclass
 class HParams(hyperparams.HParams):

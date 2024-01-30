@@ -16,13 +16,14 @@ from lm_human_preferences import train_policy
 def sample_policy(save_dir=None, savescope='policy', temperature=1.0, seed=None, batch_size=4, nsamples=0):
     hparams = train_policy.HParams()
     hparams.override_from_json_file(os.path.join(save_dir, 'train_policy_hparams.json'))
+    hparams.run.save_dir = os.path.join(save_dir, 'policy')
     print('hparams', hparams)
     task = hparams.task
 
     comm = MPI.COMM_WORLD
     nsamples_per_rank = utils.exact_div(nsamples, comm.Get_size())
     with tf.Graph().as_default():
-        m = trained_models.TrainedModel(name='sample', savedir=os.path.join(save_dir, 'policy'), scope='policy')
+        m = trained_models.TrainedModel(name='sample', run_hparams=hparams.run, scope='policy')
         encoder = m.encoding.get_encoder()
         hyperparams.dump(m.hparams(), name='model_hparams')
 

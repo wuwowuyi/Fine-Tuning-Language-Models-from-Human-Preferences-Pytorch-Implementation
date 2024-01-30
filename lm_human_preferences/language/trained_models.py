@@ -1,17 +1,20 @@
 import copy
 import os
 
-import tensorflow as tf
+import torch
 
 from lm_human_preferences.language import encodings, model
 
 
 # trained language model, like gpt-2
 class TrainedModel():
-    def __init__(self, name, *, savedir=None, scope=None):
+    def __init__(self, name, *, run_hparams, scope=None):
         self.name = name  # for example, 124M
         self.scope = scope
-        self.savedir = savedir if savedir else os.path.join('gs://gpt-2/models/', name)
+        self.savedir = run_hparams.save_dir  # savedir cannot be None. we don's save to gcs.
+        self.ckpt = run_hparams.ckpt  # checkpoint
+        self.device = run_hparams.device
+
         if name == 'test':
             self.encoding = encodings.Test
         else:
@@ -21,10 +24,9 @@ class TrainedModel():
     def checkpoint(self):
         if self.name == 'test':
             return None
-        ckpt = tf.train.latest_checkpoint(self.savedir)
-        if ckpt is not None:
-            return ckpt
-        return tf.train.latest_checkpoint(os.path.join(self.savedir, 'checkpoints'))
+        ckpt_path = os.path.join(self.savedir, self.ckpt)
+        print(f"Load checkpoint from {ckpt_path}")
+        return torch.load(ckpt_path, map_location=self.device)
 
     def hparams(self):
         if self._hparams is None:
