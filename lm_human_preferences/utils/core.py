@@ -143,8 +143,8 @@ def index_each(a, ix):
     a = tf.convert_to_tensor(a, name='a')
     ix = tf.convert_to_tensor(ix, name='ix', dtype=tf.int32)
     with tf.compat.v1.name_scope('index_each', values=[a, ix]) as scope:
-        a.shape[:1].assert_is_compatible_with(ix.shape[:1])
-        i0 = tf.range(tf.shape(a)[0], dtype=ix.dtype)
+        a.shape[:1].assert_is_compatible_with(ix.shape[:1])  # first dimension is batch
+        i0 = tf.range(tf.shape(a)[0], dtype=ix.dtype)  # (0, 1, 2,..., batch-1)
         if ix.shape.rank > 1:
             i0 = tf.tile(tf.reshape(i0, (-1,) + (1,)*(ix.shape.rank - 1)), tf.concat([[1], tf.shape(ix)[1:]], axis=0))
         return tf.gather_nd(a, tf.stack([i0, ix], axis=-1), name=scope)
@@ -153,6 +153,7 @@ def cumulative_max(x):
     """Takes the (inclusive) cumulative maximum along the last axis of x. (Not efficient.)"""
     x = tf.convert_to_tensor(x)
     with tf.compat.v1.name_scope('cumulative_max', values=[x]) as scope:
+        # if x.shape=(b, s), then repeated.shape=(b, s, s)
         repeated = tf.tile(
             tf.expand_dims(x, axis=-1),
             tf.concat([tf.ones(x.shape.rank, dtype=tf.int32), tf.shape(x)[-1:]], axis=0))
@@ -567,11 +568,13 @@ def pearson_r(x: tf.Tensor, y: tf.Tensor):
     cov = tf.reduce_mean((x - x_mean)*(y - y_mean), axis=0)
     return cov / tf.sqrt(x_var * y_var)
 
-def shape_list(x):
-    """Deal with dynamic shape in tensorflow cleanly."""
-    static = x.shape.as_list()
-    dynamic = tf.shape(x)
-    return [dynamic[i] if s is None else s for i, s in enumerate(static)]
+
+# def shape_list(x):
+#     """Deal with dynamic shape in tensorflow cleanly."""
+#     static = x.shape
+#     dynamic = tf.shape(x)
+#     return [dynamic[i] if s is None else s for i, s in enumerate(static)]
+
 
 def safe_zip(*args):
     """Zip, but require all sequences to be the same length."""
