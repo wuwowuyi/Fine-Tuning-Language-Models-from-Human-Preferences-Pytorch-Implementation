@@ -13,11 +13,7 @@ class HParams:
     """Used as a base class for hyperparameter structs. They also need to be annotated with @dataclass."""
 
     def override_from_json_file(self, filename):
-        if filename.startswith('gs://'):
-            #hparams_str = gcs.download_contents(filename)
-            raise ValueError("All files have been moved to Azure. Please download from Azure.")
-        else:
-            hparams_str = open(filename).read()
+        hparams_str = open(filename).read()
         self.parse_json(hparams_str)
 
     def override_from_str(self, hparam_str):
