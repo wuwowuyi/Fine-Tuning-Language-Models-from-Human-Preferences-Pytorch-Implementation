@@ -117,18 +117,18 @@ class Block(nn.Module):
 @dataclass
 class HParams(hyperparams.HParams):
     # Encoding (set during loading process)
-    n_vocab: int = 0  # vocab_size
+    n_vocab: int = 50257  # vocab_size
 
     # Model parameters
-    n_ctx: int = 512  # block_size
+    n_ctx: int = 1024  # block_size
     n_embd: int = 768
     n_head: int = 12
     n_layer: int = 12
 
-    embd_pdrop: float = 0.1
-    attn_pdrop: float = 0.1
-    resid_pdrop: float = 0.1
-    head_pdrop: float = 0.1
+    embd_pdrop: float = 0.0
+    attn_pdrop: float = 0.0
+    resid_pdrop: float = 0.0
+    head_pdrop: float = 0.0
 
     bias: bool = True  # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
 
