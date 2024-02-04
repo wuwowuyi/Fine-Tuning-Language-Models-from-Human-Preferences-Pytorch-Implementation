@@ -72,12 +72,12 @@ def query_formatter(hparams: TaskHParams, encoder):
     NOTE: Both of these are lists of tokens
     """
     def query_formatter(queries):
-        batch_size = tf.shape(queries)[0]
-        prefix_tokens = tf.constant(encoder.encode(hparams.query_prefix), dtype=tf.int32)
-        tiled_prefix = utils.expand_tile(prefix_tokens, batch_size, axis=0)
-        suffix_tokens = tf.constant(encoder.encode(hparams.query_suffix), dtype=tf.int32)
-        tiled_suffix = utils.expand_tile(suffix_tokens, batch_size, axis=0)
-        return tf.concat([tiled_prefix, queries, tiled_suffix], 1)
+        batch_size = queries.shape[0]
+        prefix_tokens = torch.as_tensor(encoder.encode(hparams.query_prefix), dtype=torch.int32)
+        tiled_prefix = torch.tile(prefix_tokens[None], (batch_size, 1))
+        suffix_tokens = torch.as_tensor(encoder.encode(hparams.query_suffix), dtype=torch.int32)
+        tiled_suffix = torch.tile(suffix_tokens[None], (batch_size, 1))
+        return torch.cat([tiled_prefix, queries, tiled_suffix], 1)
     return query_formatter
 
 
