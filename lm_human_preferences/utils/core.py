@@ -12,14 +12,18 @@ from functools import lru_cache, partial, wraps
 from typing import Any, Dict, Tuple, Optional
 
 import numpy as np
-import torch
+import tensorflow as tf
+from mpi4py import MPI
+from tensorflow.python.util import nest
 
 
-#from mpi4py import MPI
+tf.compat.v1.disable_eager_execution()
 
-
-#nest = tf.contrib.framework.nest
-
+try:
+    import horovod.tensorflow as hvd
+    hvd.init()
+except:
+    hvd = None
 
 def nvidia_gpu_count():
     """
@@ -108,11 +112,15 @@ def set_mpi_seed(seed: Optional[int]):
     tf.compat.v1.set_random_seed(seed)
 
 
-def exact_div(a: int, b: int) -> int:
+def exact_div(a, b):
     q = a // b
-    if a != q * b:
-        raise ValueError('Inexact division: %s / %s = %s' % (a, b, a / b))
-    return q
+    if tf.is_tensor(q):
+        with tf.control_dependencies([tf.debugging.Assert(tf.equal(a, q * b), [a, b])]):
+            return tf.identity(q)
+    else:
+        if a != q * b:
+            raise ValueError('Inexact division: %s / %s = %s' % (a, b, a / b))
+        return q
 
 
 def ceil_div(a, b):
@@ -183,11 +191,10 @@ class Schema:
     shape: Tuple[Optional[int],...]
 
 
-# we don't need this function it is for creating placeholders
-# def add_batch_dim(schemas: dict[str, Schema], batch_size=None):
-#     def add_dim(schema):
-#         return Schema(dtype=schema.dtype, shape=(batch_size,)+schema.shape)
-#     return {k: add_dim(s) for k, s in schemas}
+def add_batch_dim(schemas, batch_size=None):
+    def add_dim(schema):
+        return Schema(dtype=schema.dtype, shape=(batch_size,)+schema.shape)
+    return nest.map_structure(add_dim, schemas)
 
 
 class SampleBuffer:
@@ -200,14 +207,19 @@ class SampleBuffer:
             buffer = SampleBuffer(...)
     """
 
-    def __init__(self, *, capacity: int, schemas: dict[str, Schema], name=None) -> None:
-        # TODO: place on CPU?
-        self._capacity = capacity
-        self._total = 0
-        self._vars = {
-            n: torch.zeros((capacity,) + s.shape, dtype=s.dtype)
-            for n, s in schemas.items()
-        }
+    def __init__(self, *, capacity: int, schemas: Dict[str,Schema], name=None) -> None:
+        with tf.compat.v1.variable_scope(name, 'buffer', use_resource=True, initializer=tf.compat.v1.zeros_initializer):
+            self._capacity = tf.constant(capacity, dtype=tf.int32, name='capacity')
+            self._total = tf.compat.v1.get_variable(
+                'total', dtype=tf.int32, shape=(), trainable=False, collections=[tf.compat.v1.GraphKeys.LOCAL_VARIABLES],
+            )
+            self._vars = {
+                n: tf.compat.v1.get_variable(
+                    n, dtype=s.dtype, shape=(capacity,) + s.shape, trainable=False,
+                    collections=[tf.compat.v1.GraphKeys.LOCAL_VARIABLES],
+                )
+                for n,s in schemas.items()
+            }
 
     def add(self, **data):
         """Add new data to the end of the buffer, dropping old data if we exceed capacity."""
@@ -215,47 +227,47 @@ class SampleBuffer:
         if data.keys() != self._vars.keys():
             raise ValueError('data.keys() = %s != %s' % (sorted(data.keys()), sorted(self._vars.keys())))
         first = next(iter(data.values()))
-        pre = first.shape[:1]  # torch.Size([batch_size])
+        pre = first.shape[:1]
         for k, d in data.items():
             try:
-                d.shape == (pre + self._vars[k].shape[1:])
+                d.shape.assert_is_compatible_with(pre.concatenate(self._vars[k].shape[1:]))
             except ValueError as e:
                 raise ValueError('%s, key %s' % (e, k))
-
         # Enqueue
-        n = first.shape[0]
+        n = tf.shape(first)[0]
         capacity = self._capacity
-        self._total += n
-        i0 = (self._total - n) % capacity  # first index of new data item
-        i0n = i0 + n  # total #items to deal with
-        i1 = min(i0n, capacity)  # last index of new data item (exclusive)
-        i2 = i1 % capacity  # i1 if i0n <= capacity else 0
-        i3 = i0n % capacity  # i1 if i0n <= capacity else i0n % capacity
-        for k, d in data.items():
-            p1, p2 = torch.split(d, [i1 - i0, i3 - i2])
-            self._vars[k][i0:i1] = p1
-            self._vars[k][i2:i3] = p2
+        i0 = (self._total.assign_add(n) - n) % capacity
+        i0n = i0 + n
+        i1 = tf.minimum(i0n, capacity)
+        i2 = i1 % capacity
+        i3 = i0n % capacity
+        slices = slice(i0, i1), slice(i2, i3)
+        sizes = tf.stack([i1 - i0, i3 - i2])
+        assigns = [self._vars[k][s].assign(part)
+                   for k,d in data.items()
+                   for s, part in zip(slices, tf.split(d, sizes))]
+        return tf.group(assigns)
 
     def total(self):
         """Total number of entries ever added, including those already discarded."""
-        return self._total
+        return self._total.read_value()
 
     def size(self):
         """Current number of entries."""
-        return min(self.total(), self._capacity)
+        return tf.minimum(self.total(), self._capacity)
 
     def read(self, indices):
         """indices: A 1-D Tensor of indices to read from. Each index must be less than
         capacity."""
-        return {k: v[indices] for k, v in self._vars.items()}
+        return {k: v.sparse_read(indices) for k,v in self._vars.items()}
 
     def data(self):
-        return {k: v[:self.size()] for k, v in self._vars.items()}
+        return {k: v[:self.size()] for k,v in self._vars.items()}
 
     def sample(self, n, seed=None):
         """Sample n entries with replacement."""
         size = self.size()
-        indices = torch.randint(size, (n,))
+        indices = tf.random.uniform([n], maxval=size, dtype=tf.int32, seed=seed)
         return self.read(indices)
 
     def write(self, indices, updates):
@@ -263,12 +275,16 @@ class SampleBuffer:
         indices: A 1-D Tensor of indices to write to. Each index must be less than `capacity`.
         update: A dictionary of new values, where each entry is a tensor with the same length as `indices`.
         """
+        ops = []
         for k, v in updates.items():
-            self._vars[k][indices] = v
+            ops.append(self._vars[k].scatter_update(tf.IndexedSlices(v, tf.cast(indices, dtype=tf.int32))))
+        return tf.group(*ops)
 
     def write_add(self, indices, deltas):
+        ops = []
         for k, d in deltas.items():
-            self._vars[k][indices] += d
+            ops.append(self._vars[k].scatter_add(tf.IndexedSlices(d, tf.cast(indices, dtype=tf.int32))))
+        return tf.group(*ops)
 
 
 def entropy_from_logits(logits):
@@ -529,8 +545,7 @@ def variables_on_gpu():
     # )
     return tf.device(device)  # in v2, device must be a string.
 
-'''
-# graph_function is not needed for eager execution
+
 def graph_function(**schemas: Schema):
     def decorate(make_op):
         def make_ph(path, schema):
@@ -557,7 +572,7 @@ def graph_function(**schemas: Schema):
             return tf.compat.v1.get_default_session().run(op, feed_dict=feed, options=run_options, run_metadata=None)
         return run
     return decorate
-'''
+
 
 
 def pearson_r(x: tf.Tensor, y: tf.Tensor):
@@ -568,13 +583,11 @@ def pearson_r(x: tf.Tensor, y: tf.Tensor):
     cov = tf.reduce_mean((x - x_mean)*(y - y_mean), axis=0)
     return cov / tf.sqrt(x_var * y_var)
 
-
-# def shape_list(x):
-#     """Deal with dynamic shape in tensorflow cleanly."""
-#     static = x.shape
-#     dynamic = tf.shape(x)
-#     return [dynamic[i] if s is None else s for i, s in enumerate(static)]
-
+def shape_list(x):
+    """Deal with dynamic shape in tensorflow cleanly."""
+    static = x.shape.as_list()
+    dynamic = tf.shape(x)
+    return [dynamic[i] if s is None else s for i, s in enumerate(static)]
 
 def safe_zip(*args):
     """Zip, but require all sequences to be the same length."""
