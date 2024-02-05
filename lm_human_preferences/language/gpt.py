@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from lm_human_preferences.utils import hyperparams
+from lm_human_preferences.utils import core as utils, hyperparams
 
 
 class LayerNorm(nn.Module):
@@ -81,7 +81,7 @@ class MLP(nn.Module):
         self.c_fc    = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
         self.gelu    = nn.GELU()
         self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
-        self.dropout = nn.Dropout(config.head_pdrop)
+        self.dropout = nn.Dropout(config.resid_pdrop)
 
     def forward(self, x):
         x = self.c_fc(x)
@@ -185,7 +185,16 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx):
+    def forward(self, idx: torch.Tensor, *, padding_token: int, lm_output: bool = False):
+        # add support to padding tokens
+        if padding_token is not None:
+            mask = torch.ne(idx, padding_token)
+            idx = torch.where(mask, idx, torch.zeros_like(idx))  # set padding tokens to zero
+        else:
+            mask = None
+        if torch.all(mask):  # input idx has no padding tokens
+            mask = None
+
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.n_ctx, f"Cannot forward sequence of length {t}, block size is only {self.config.n_ctx}"
@@ -197,8 +206,29 @@ class GPT(nn.Module):
         x = self.transformer.drop(tok_emb + pos_emb)
         for block in self.transformer.h:
             x = block(x)
-        x = self.transformer.ln_f(x)
-        return self.lm_head(x)
+        x = self.transformer.ln_f(x)  # shape (b, t, n_embd)
+
+        results = {}
+        if mask is not None:
+            # For padding tokens, use the output from the last non-padding token instead.
+            # set indices of padding tokens in idx to -1. present_indices.shape == (b, t) == idx.shape
+            present_indices = torch.where(mask, torch.tile(torch.arange(t)[None], (b, 1)), -1)
+            use_indices = torch.cummax(present_indices, dim=1)[0]  # shape=(b, t)
+            assert torch.all(use_indices.gt(-1))
+            x = x[torch.arange(b)[:, None], use_indices]
+        results['h'] = x
+
+        if lm_output:  # compute logits and loss of language model
+            lm_logits = self.lm_head(x)  # shape=(b, t, n_vocab)
+            lm_labels = torch.cat((idx[:, 1:], idx[:, :1]), dim=1)  # shape=(b, t). first token as label of the last
+            lm_loss = F.cross_entropy(
+                lm_logits.view(-1, lm_logits.size(-1)), lm_labels.view(-1), reduction='none')  # shape=(b, t)
+            relevant_loss = lm_loss.reshape(b, t)[:, :-1]  # shape=(b, t-1). remove last token's loss
+            results['lm_all_losses'] = relevant_loss
+            results['lm_logits'] = lm_logits
+            results['lm_losses'] = torch.mean(relevant_loss, dim=-1)  # shape=(b,)
+
+        return results
 
     def crop_block_size(self, block_size):
         # model surgery to decrease the block size if necessary
