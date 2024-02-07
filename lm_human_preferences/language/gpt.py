@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from lm_human_preferences.utils import core as utils, hyperparams
+from lm_human_preferences.utils import core_torch as utils, hyperparams
 
 
 class LayerNorm(nn.Module):
@@ -185,7 +185,7 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx: torch.Tensor, *, padding_token: int, lm_output: bool = False):
+    def forward(self, idx: torch.Tensor, *, padding_token: int):
         # add support to padding tokens
         if padding_token is not None:
             mask = torch.ne(idx, padding_token)
@@ -218,15 +218,14 @@ class GPT(nn.Module):
             x = x[torch.arange(b)[:, None], use_indices]
         results['h'] = x
 
-        if lm_output:  # compute logits and loss of language model
-            lm_logits = self.lm_head(x)  # shape=(b, t, n_vocab)
-            lm_labels = torch.cat((idx[:, 1:], idx[:, :1]), dim=1)  # shape=(b, t). first token as label of the last
-            lm_loss = F.cross_entropy(
-                lm_logits.view(-1, lm_logits.size(-1)), lm_labels.view(-1), reduction='none')  # shape=(b, t)
-            relevant_loss = lm_loss.reshape(b, t)[:, :-1]  # shape=(b, t-1). remove last token's loss
-            results['lm_all_losses'] = relevant_loss
-            results['lm_logits'] = lm_logits
-            results['lm_losses'] = torch.mean(relevant_loss, dim=-1)  # shape=(b,)
+        lm_logits = self.lm_head(x)  # shape=(b, t, n_vocab)
+        lm_labels = torch.cat((idx[:, 1:], idx[:, :1]), dim=1)  # shape=(b, t). first token as label of the last
+        lm_loss = F.cross_entropy(
+            lm_logits.view(-1, lm_logits.size(-1)), lm_labels.view(-1), reduction='none')  # shape=(b*t,)
+        relevant_loss = lm_loss.reshape(b, t)[:, :-1]  # shape=(b, t-1). remove last token's loss
+        results['lm_all_losses'] = relevant_loss
+        results['lm_logits'] = lm_logits
+        results['lm_losses'] = torch.mean(relevant_loss, dim=-1)  # shape=(b,)
 
         return results
 
