@@ -15,8 +15,7 @@ class Policy(nn.Module):
             trained_model: TrainedModel,
             *,
             embed_queries=lambda queries: queries,
-            temperature=1.0, is_root=True,
-            build_respond=True,
+            temperature=1.0
     ):
 
         super().__init__()
@@ -25,20 +24,11 @@ class Policy(nn.Module):
         self.encoder = self.trained_model.encoding.get_encoder()
         self.padding_token = self.encoder.padding_token
 
-        self.is_root = is_root
         self.embed_queries = embed_queries
         self.temperature = temperature  # used for sampling
 
-        self.lm_model = trained_model.init_model()  # pre-trained language model
-        self.lm_model.to(device=self.model_hparams)
-
-        self.dropout = nn.Dropout(self.model_hparams.head_pdrop)
-        self.head = nn.Linear(self.model_hparams.n_embd, 1)
-        torch.nn.init.zeros_(self.head.weight)  # TODO: zero initial value?
-        torch.nn.init.zeros_(self.head.bias)
-
-        if build_respond:
-            self.respond = self.respond_op
+        self.lm_model = trained_model.init_model('policy')  # pre-trained language model
+        self.respond = self.respond_op
         self.analyze_responses = self.analyze_responses_op
 
     def get_encoder(self):
@@ -46,14 +36,11 @@ class Policy(nn.Module):
 
     def forward(self, tokens):
         lm_output = self.lm_model(tokens, padding_token=self.padding_token)
-        x = lm_output['h']  # shape=(b, t, e)
-        x = torch.squeeze(self.head(self.dropout(x)), dim=-1)  # shape=(b, t)
-
         # need to slice logits since we don't want to generate special tokens
         logits = lm_output['lm_logits'][:, :, :self.model_hparams.n_vocab]  # shape=(b, t, n_vocab)
         return {
             'logits': logits,
-            'values': x,
+            'values': lm_output['hp'],
         }
 
     @torch.no_grad()

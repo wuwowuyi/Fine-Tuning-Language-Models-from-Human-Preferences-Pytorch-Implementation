@@ -155,6 +155,9 @@ class GPT(nn.Module):
         # not 100% sure what this is, so far seems to be harmless. TODO investigate
         self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
 
+        self.head_dropout = nn.Dropout(config.head_pdrop)
+        self.hp_head = nn.Linear(config.n_embd, 1)  # human preferences head for policy or reward
+
         # init all weights
         self.apply(self._init_weights)
         # apply special scaled init to the residual projections, per GPT-2 paper
@@ -218,6 +221,7 @@ class GPT(nn.Module):
             x = x[torch.arange(b)[:, None], use_indices]
         results['h'] = x
 
+        # compute language model heads and losses
         lm_logits = self.lm_head(x)  # shape=(b, t, n_vocab)
         lm_labels = torch.cat((idx[:, 1:], idx[:, :1]), dim=1)  # shape=(b, t). first token as label of the last
         lm_loss = F.cross_entropy(
@@ -226,6 +230,10 @@ class GPT(nn.Module):
         results['lm_all_losses'] = relevant_loss
         results['lm_logits'] = lm_logits
         results['lm_losses'] = torch.mean(relevant_loss, dim=-1)  # shape=(b,)
+
+        # compute heads for policy/reward
+        x = torch.squeeze(self.head(self.dropout(x)), dim=-1)  # shape=(b, t)
+        results['hp'] = x  # 'hp' means human preferences
 
         return results
 

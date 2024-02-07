@@ -1,17 +1,23 @@
-import copy
-import os
+from pathlib import Path
 
+import numpy as np
 import torch
 
-from lm_human_preferences.language import encodings, model
+from lm_human_preferences.language import encodings, gpt
+from lm_human_preferences.language.gpt import GPT
+
+GPT2_Model = {  # mapping to match hugging face's model names
+    '124M': 'gpt2',
+    '350M': 'gpt2-medium',
+    '774M': 'gpt2-large',
+    '1558M': 'gpt2-xl'
+}
 
 
-# trained language model, like gpt-2
 class TrainedModel():
-    def __init__(self, name, *, run_hparams, scope=None):
+    def __init__(self, name, *, run_hparams):
         self.name = name  # for example, 124M
-        self.scope = scope
-        self.savedir = run_hparams.save_dir  # savedir cannot be None. we don's save to gcs.
+        self.savedir: Path = Path(run_hparams.save_dir)  # savedir cannot be None. we don's save to gcs.
         self.ckpt = run_hparams.ckpt  # checkpoint
         self.device = run_hparams.device
 
@@ -21,65 +27,63 @@ class TrainedModel():
             self.encoding = encodings.Main
         self._hparams = None
 
-    def checkpoint(self):
+    def checkpoint(self, model_type: str):
         if self.name == 'test':
             return None
-        ckpt_path = os.path.join(self.savedir, self.ckpt)
-        print(f"Load checkpoint from {ckpt_path}")
-        return torch.load(ckpt_path, map_location=self.device)
+        ckpt_path = self.savedir / model_type / self.ckpt
+        if ckpt_path.is_file():
+            print(f"Load checkpoint from {ckpt_path}")
+            return torch.load(ckpt_path, map_location=self.device)
 
     def hparams(self):
         if self._hparams is None:
             if self.name == 'test':
                 hparams = test_hparams()
             else:
-                hparams = load_hparams(
-                    os.path.join(self.savedir, 'hparams.json')
-                )
+                hparams = gpt.HParams()  # default hyperparams
+                f = self.savedir / 'hparams.json'  # override from a json file
+                if f.is_file():
+                    hparams.override_from_json_file(f)
             self._hparams = hparams
-        return copy.deepcopy(self._hparams)
+        return self._hparams
 
-    def init_op(self, params, new_scope):
+    def init_model(self, model_type: str):
         """
-        Initialize given params with checkpoint.
-        Values are not loaded immediately, but when the initializer is run
-         (typically by running a tf.compat.v1.global_variables_initializer op).
+        :param model_type: 'policy', 'reward', etc.
+        :return: a language model instance
         """
-        assert params
-        params = dict(**params)
-        checkpoint = self.checkpoint()
-        available = tf.train.list_variables(checkpoint)
-        unchanged = {}
+        checkpoint = self.checkpoint(model_type)
+        config = self.hparams()
+        if checkpoint:  # a checkpoint exists, load model from it.
+            state_dict = checkpoint['model']
+            # fix the keys of the state dictionary :(
+            unwanted_prefix = '_orig_mod.'
+            for k, v in list(state_dict.items()):
+                if k.startswith(unwanted_prefix):
+                    state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
+            model = GPT(config)
+            model.load_state_dict(state_dict)
+        else:
+            print(f"Initializing from OpenAI GPT-2 weights: {self.name}")
+            # initialize from OpenAI GPT-2 weights
+            model = GPT.from_pretrained(GPT2_Model[self.name])  # make sure hparams matches pretrained hparams
+            # overwrite default init of the head layer for policy/reward
+            if model_type == 'policy':
+                torch.nn.init.zeros_(model.hp_head.weight)  # TODO: zero initial value?
+            else:
+                torch.nn.init.normal_(model.hp_head.weight, std=1 / np.sqrt(config.n_embd + 1))
+        model.to(self.device)
+        return model
 
-        for name, shape in available:
-            our_name = name
-            if self.scope:
-                if name.startswith(self.scope):
-                    our_name = name[len(self.scope):].lstrip('/')
-                else:
-                    continue
-            # Annoying hack since some code uses 'scope/model' as the scope and other code uses just 'scope'
-            our_name = '%s/%s' % (new_scope, our_name)
-            if our_name not in params:
-                # NOTE: this happens for global_step and optimizer variables
-                # (e.g. beta1_power, beta2_power, blah/Adam, blah/Adam_1)
-                # print(f'{name} is missing for scope {new_scope}')
-                continue
-            var = params[our_name]
-            del params[our_name]
-            assert var.shape == shape, 'Shape mismatch: %s.shape = %s != %s' % (var.op.name, var.shape, shape)
-            unchanged[name] = var
-        for name in params.keys():
-            print(f'Param {name} is missing from checkpoint {checkpoint}')
-        tf.compat.v1.train.init_from_checkpoint(checkpoint, unchanged)
 
 def load_hparams(file):
-    hparams = model.HParams()
+    hparams = gpt.HParams()
     hparams.override_from_json_file(file)
     return hparams
 
+
 def test_hparams():
-    hparams = model.HParams()
+    hparams = gpt.HParams()
     hparams.override_from_dict(dict(
         n_vocab=27,  # Corresponds to random encoding length
         n_ctx=8,
