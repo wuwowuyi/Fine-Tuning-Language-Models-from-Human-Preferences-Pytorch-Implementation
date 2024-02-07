@@ -1,129 +1,122 @@
-import tensorflow as tf
+import torch
+from torch import nn, distributions
+from torch.nn import functional as F
 
-from lm_human_preferences.language import model, sample
-from lm_human_preferences.utils import core as utils
-from lm_human_preferences.utils.core import Schema
+from lm_human_preferences.language.trained_models import TrainedModel
+from lm_human_preferences.utils import core_torch as utils
 
 
-# Language model in RL setting
-class Policy:
+class Policy(nn.Module):
+
+    # TODO: sort out gradients and device!!!
+
     def __init__(
             self,
-            trained_model, *,
-            scope=None, use_resource=False,
+            trained_model: TrainedModel,
+            *,
             embed_queries=lambda queries: queries,
             temperature=1.0, is_root=True,
             build_respond=True,
     ):
+
+        super().__init__()
         self.trained_model = trained_model
-        self.model_hparams = trained_model.hparams()
-        self.is_root = is_root
-
-        self.use_resource = use_resource
+        self.model_hparams = trained_model.hparams()  # TODO: set drop out to zeros for policy
         self.encoder = self.trained_model.encoding.get_encoder()
-
-        with tf.compat.v1.variable_scope(scope, 'transformer_policy', use_resource=self.use_resource) as s:
-            self.scope = s
-            self.model = model.Model(
-                hparams=self.model_hparams,
-                scalar_heads=['value'])
-
-        self.built = False
-        self.embed_queries = embed_queries
-        self.temperature = temperature
         self.padding_token = self.encoder.padding_token
 
+        self.is_root = is_root
+        self.embed_queries = embed_queries
+        self.temperature = temperature  # used for sampling
+
+        self.lm_model = trained_model.init_model()  # pre-trained language model
+        self.lm_model.to(device=self.model_hparams)
+
+        self.dropout = nn.Dropout(self.model_hparams.head_pdrop)
+        self.head = nn.Linear(self.model_hparams.n_embd, 1)
+        torch.nn.init.zeros_(self.head.weight)  # TODO: zero initial value?
+        torch.nn.init.zeros_(self.head.bias)
+
         if build_respond:
-            self.respond = utils.graph_function(
-                queries=Schema(tf.int32, (None, None)),
-                length=Schema(tf.int32, ()),
-            )(self.respond_op)
-        self.analyze_responses = utils.graph_function(
-            queries=Schema(tf.int32, (None, None)),
-            responses=Schema(tf.int32, (None, None)),
-        )(self.analyze_responses_op)
+            self.respond = self.respond_op
+        self.analyze_responses = self.analyze_responses_op
 
     def get_encoder(self):
         return self.encoder
 
-    # one policy step
-    def step_core(self, model_hparams, tokens, past=None, past_tokens=None, do_dropout=False, name=None):
-        with tf.compat.v1.name_scope(name, 'step'):
-            with tf.compat.v1.variable_scope(
-                    self.scope,
-                    reuse=self.built,
-                    auxiliary_name_scope=not self.built,
-                    use_resource=self.use_resource):
-                lm_output = self.model(X=tokens, past=past, past_tokens=past_tokens,
-                                       do_dropout=do_dropout, padding_token=self.padding_token)
+    def forward(self, tokens):
+        lm_output = self.lm_model(tokens, padding_token=self.padding_token)
+        x = lm_output['h']  # shape=(b, t, e)
+        x = torch.squeeze(self.head(self.dropout(x)), dim=-1)  # shape=(b, t)
 
-                # need to slice logits since we don't want to generate special tokens
-                logits = lm_output['lm_logits'][:,:,:self.model_hparams.n_vocab]
-                presents = lm_output['present']
-                value = lm_output['value']
-                if not self.built:
-                    self._set_initializers()
-                self.built = True
-                return {
-                    'logits': logits,
-                    'values': value,
-                    'presents': presents,
-                }
+        # need to slice logits since we don't want to generate special tokens
+        logits = lm_output['lm_logits'][:, :, :self.model_hparams.n_vocab]  # shape=(b, t, n_vocab)
+        return {
+            'logits': logits,
+            'values': x,
+        }
 
-    def ensure_built(self):
-        if not self.built:
-            with tf.compat.v1.name_scope('dummy'):
-                self.step_core(self.model_hparams, tokens=tf.zeros([0,0], dtype=tf.int32))
-
-    def get_params(self):
-        self.ensure_built()
-        params = utils.find_trainable_variables(self.scope.name)
-        assert len(params) > 0
-        return params
-
-    def _set_initializers(self):
-        """Change initializers to load a language model from a tensorflow checkpoint."""
-        # Skip if
-        # 1. We're not rank 0.  Values will be copied from there.
-        # 2. We want random initialization.  Normal initialization will do the work.
-        if not self.is_root or self.trained_model.name == 'test':
-            return
-
-        with tf.init_scope():
-            scope = self.scope.name
-
-            # Initialize!
-            params = {v.op.name: v for v in utils.find_trainable_variables(scope)}
-            self.trained_model.init_op(params, new_scope=scope)
-
+    @torch.no_grad()
     def respond_op(self, queries, length):
+        """Given a query, sample a sequence of given `length`. """
+        contexts = self.embed_queries(queries)  # shape=(b, t)
+        contexts_length = contexts.shape[1]
+        result = self.sample(contexts, length)
+        result['responses'] = result['responses'][:, contexts_length:]
+        return result
+
+    def sample(self, context: torch.Tensor, length: int, top_k: int = 0, top_p: float = 1.0):
+        """
+        Sequentially sample `length` tokens given `context`.
+        :param context: context.shape=(b, t) where b is batch_size, t is length of sequence.
+        :param length: number of tokens to sample sequentially
+        """
+        beta = 1 / torch.max(torch.as_tensor([self.temperature, 1e-10], dtype=torch.float32))
+        log_probs = []  # each item.shape=(b,)
+        values = []  # each item.shape=(b,)
+        for _ in range(length):
+            # crop context if it's too long
+            context_cond = context if context.size(1) <= self.model_hparams.n_ctx else context[:, -self.model_hparams.n_ctx:]
+            result = self(context_cond)
+            logits = result['logits'][:, -1, :] * beta  # shape=(b, n_vocab)
+            values.append(result['values'][:, -1])  # use last token's value
+            # optionally crop the logits to only the top k options
+            if top_k != 0:
+                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                logits[logits < v[:, [-1]]] = -float('Inf')
+            if top_p != 1.0:
+                logits = utils.take_top_p_logits(logits, top_p)
+
+            # apply softmax to convert logits to (normalized) probabilities
+            dist = distributions.Categorical(logits=logits)
+            # sample from the distribution
+            next_token = dist.sample()  # shape=(b,)
+            logp = -F.cross_entropy(logits, next_token, reduction='none')  # shape=(b,)
+            log_probs.append(logp)
+            # append sampled index to the running sequence and continue
+            context = torch.cat((context, next_token[None]), dim=1)
+        return {
+            'responses': context,  # shape=(b, context.shape[1] + length)
+            'logprobs': torch.stack(log_probs, dim=1),  # shape=(b, length)
+            'values': torch.stack(values, dim=1)  # shape=(b, length)
+        }
+
+    @torch.no_grad()
+    def analyze_responses_op(self, queries: torch.Tensor, responses: torch.Tensor):
         contexts = self.embed_queries(queries)
-        context_length = tf.shape(contexts)[1]
-        result = sample.sample_sequence(
-            step=self.step_core,
-            context=contexts,
-            length=length,
-            model_hparams=self.model_hparams,
-            temperature=self.temperature,
-            extra_outputs={'values':tf.float32},
-        )
+        context_length = contexts.shape[1]
+        batch, length = responses.shape
+        tokens = torch.cat((contexts, responses), dim=1)
+        result = self(tokens)
+        logits = result['logits'][:, context_length-1:-1]  # shape=(b, length, n_vocab)
+
+        beta = 1 / torch.max(torch.as_tensor([self.temperature, 1e-10], dtype=torch.float32))
+        logits *= beta
+        logp = -F.cross_entropy(logits.view(batch * length, -1), responses.view(-1), reduction='none')  # E_p[log(q)] of logits q.
+        p = F.softmax(logits, dim=-1)  # shape=logits.shape
+        entropy = torch.logsumexp(logits, dim=-1) - torch.sum(p * logits, dim=-1)  # shape=(b, length)
         return dict(
-            responses=result['tokens'][:, context_length:],
-            logprobs=result['logprobs'],
-            values=result['values'],
+            logprobs=logp.view(batch, length),
+            entropies=entropy,
+            values=result['values'][:, context_length-1:-1],
         )
-
-    def analyze_responses_op(self, queries, responses):
-        contexts = self.embed_queries(queries)
-        context_length = tf.shape(contexts)[1]
-        tokens = tf.concat([contexts, responses], axis=1)
-        result = self.step_core(self.model_hparams, tokens)
-        logits = result['logits'][:, context_length-1:-1]
-
-        logits /= self.temperature
-        return dict(
-            logprobs = utils.logprobs_from_logits(logits=logits, labels=responses),
-            entropies = utils.entropy_from_logits(logits),
-            values = result['values'][:, context_length-1:-1],
-        )
-
