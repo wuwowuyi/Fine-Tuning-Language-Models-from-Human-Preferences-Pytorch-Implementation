@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any, Tuple, Optional
 
 import torch
+from torch.nn import functional as F
 
 
 @dataclass
@@ -15,6 +16,21 @@ def exact_div(a: int, b: int) -> int:
     if a != q * b:
         raise ValueError('Inexact division: %s / %s = %s' % (a, b, a / b))
     return q
+
+
+def take_top_p_logits(logits: torch.Tensor, p: float):
+    """Nucleus sampling.
+    The implementation here is to find the minimum logits and use them to filter.
+
+    logits.shape = (b, n_vocab) where b is batch size
+    """
+    sorted_logits = torch.sort(logits, descending=True, dim=-1)[0]
+    probs = F.softmax(sorted_logits, dim=-1)
+    cum_probs = torch.cumsum(probs, dim=-1)
+    mask = torch.cumsum(cum_probs >= p, dim=-1) <= 1
+    selected = torch.where(mask, sorted_logits, float('inf'))
+    min_logits = torch.min(selected, dim=-1, keepdim=True)[0]
+    return torch.where(logits >= min_logits, logits, -float('inf'))
 
 
 class SampleBuffer:
