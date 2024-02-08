@@ -2,110 +2,60 @@
 
 import os
 
-import tensorflow as tf
-from mpi4py import MPI
+import numpy as np
+import torch
+from torch import nn
 
 from lm_human_preferences.language import trained_models, model
-from lm_human_preferences.utils import core as utils
-from lm_human_preferences.utils.core import Schema
+from lm_human_preferences.train_reward import RunHParams
 
 
-# TODO: combine this with TrainedRewardModel
-class RewardModelTrainer:
+# TODO: sort out device and gradient!
+
+class RewardModelTrainer(nn.Module):
     def __init__(
             self,
-            trained_model, *,
-            scope='reward_model', use_resource=False,
-            is_root=True,
+            trained_model,
+            run_hparams: RunHParams
     ):
+        super().__init__()
         self.trained_model = trained_model
         self.hparams = trained_model.hparams()
-        self.is_root = is_root
-
-        self.use_resource = use_resource
         self.encoder = self.trained_model.encoding.get_encoder()
-
-        self.scope = scope
-        # also use a gpt-2 model
-        self.model = model.Model(hparams=self.hparams, scope=f'{scope}/model', scalar_heads=['reward'])
-
-        self.built = False
         self.padding_token = self.encoder.padding_token
 
-        self.get_rewards = utils.graph_function(
-            queries=Schema(tf.int32, (None, None)),
-            responses=Schema(tf.int32, (None, None)),
-        )(self.get_rewards_op)
-
+        self.run_hparams = run_hparams
+        self.device = self.run_hparams.device
+        # also use a gpt-2 model
+        self.lm_model = trained_model.init_model('reward')  # pre-trained language model
+        self.reward_gain = nn.Parameter(torch.ones(1, device=self.device))
+        self.reward_bias = nn.Parameter(torch.zeros(0, device=self.device))
 
     def get_encoder(self):
         return self.encoder
 
-    def _build(self, tokens, do_dropout=False, name=None):
-        with tf.compat.v1.variable_scope(self.scope, reuse=self.built, auxiliary_name_scope=not self.built, use_resource=self.use_resource):
-            lm_output = self.model(X=tokens, do_dropout=do_dropout, padding_token=self.padding_token)
-
-            reward = lm_output['reward'][:, -1]
-            with tf.compat.v1.variable_scope('reward_norm'):
-                if not self.built:
-                    self.reward_gain = tf.compat.v1.get_variable('gain', shape=(), initializer=tf.compat.v1.constant_initializer(1))
-                    self.reward_bias = tf.compat.v1.get_variable('bias', shape=(), initializer=tf.compat.v1.constant_initializer(0))
-                    self._reward_gain_p = tf.compat.v1.placeholder(name='gain_p', dtype=tf.float32, shape=())
-                    self._reward_bias_p = tf.compat.v1.placeholder(name='bias_p', dtype=tf.float32, shape=())
-                    self._set_reward_norm = tf.group(self.reward_gain.assign(self._reward_gain_p),
-                                                     self.reward_bias.assign(self._reward_bias_p))
-                if reward is not None:
-                    reward = self.reward_gain * reward + self.reward_bias
-            if not self.built:
-                self._set_initializers()
-            self.built = True
-            return reward
-
-    def ensure_built(self):
-        if self.built:
-            return
-        with tf.compat.v1.name_scope('dummy'):
-            self._build(tokens=tf.zeros([0,0], dtype=tf.int32))
-
-    def get_params(self):
-        self.ensure_built()
-        return self.model.get_params() + [self.reward_gain, self.reward_bias]
+    def forward(self, tokens):
+        lm_output = self.model(tokens, padding_token=self.padding_token)
+        reward = lm_output['hp'][:, -1]
+        return self.reward_gain * reward + self.reward_bias
 
     def reset_reward_scale(self):
-        sess = tf.compat.v1.get_default_session()
-        sess.run(self._set_reward_norm, feed_dict={self._reward_gain_p: 1, self._reward_bias_p: 0})
+        self.reward_gain.copy_(torch.tensor(1))
+        self.reward_bias.copy_(torch.zeros(0))
 
     def set_reward_norm(self, *, old_mean, old_std, new_mean, new_std):
         """Given old_mean+-old_std of reward_model, change gain and bias to get N(new_mean,new_std)."""
-        sess = tf.compat.v1.get_default_session()
-        old_gain, old_bias = sess.run((self.reward_gain, self.reward_bias))
+        old_gain, old_bias = self.reward_gain, self.reward_bias
         assert old_gain == 1 and old_bias == 0,\
             f'set_reward_norm expects gain = 1 and bias = 0, not {old_gain}, {old_bias}'
-        # gain * N(old_mean,old_std) + bias = N(gain * old_mean, gain * old_std) + bias
-        #                                   = N(gain * old_mean + bias, gain * old_std)
-        # gain * old_std = new_std, gain = new_std / old_std
-        # gain * old_mean + bias = new_mean, bias = new_mean - gain * old_mean
         gain = new_std / old_std
         bias = new_mean - gain * old_mean
-        sess.run(self._set_reward_norm, feed_dict={self._reward_gain_p: gain, self._reward_bias_p: bias})
+        self.reward_gain.copy_(torch.as_tensor(gain))
+        self.reward_bias.copy_(torch.as_tensor(bias))
 
-    def _set_initializers(self):
-        """Change initializers to load a language model from a tensorflow checkpoint."""
-        # Skip if
-        # 1. We're not rank 0.  Values will be copied from there.
-        # 2. We want random initialization.  Normal initialization will do the work.
-        if not self.is_root or self.trained_model.name == 'test':
-            return
-
-        with tf.init_scope():
-            # Initialize!
-            params = {v.op.name: v for v in utils.find_trainable_variables(self.scope)}
-            assert params
-            self.trained_model.init_op(params, new_scope=self.scope)
-
-    def get_rewards_op(self, queries, responses):
-        tokens = tf.concat([queries, responses], axis=1)
-        return self._build(tokens)
+    def get_rewards(self, queries, responses):
+        tokens = torch.concat((queries, responses), dim=1)
+        return self(tokens)
 
 
 class TrainedRewardModel():
