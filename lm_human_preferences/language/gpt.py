@@ -233,7 +233,7 @@ class GPT(nn.Module):
         results['lm_losses'] = torch.mean(relevant_loss, dim=-1)  # shape=(b,)
 
         # compute heads for policy/reward
-        x = torch.squeeze(self.head(self.dropout(x)), dim=-1)  # shape=(b, t)
+        x = torch.squeeze(self.hp_head(self.head_dropout(x)), dim=-1)  # shape=(b, t)
         results['hp'] = x  # 'hp' means human preferences
 
         return results
