@@ -192,10 +192,11 @@ class GPT(nn.Module):
         # add support to padding tokens
         if padding_token is not None:
             mask = torch.ne(idx, padding_token)
-            idx = torch.where(mask, idx, torch.zeros_like(idx))  # set padding tokens to zero
+            if torch.all(mask):  # input idx has no padding tokens
+                mask = None
+            else:
+                idx = torch.where(mask, idx, torch.zeros_like(idx))  # set padding tokens to zero
         else:
-            mask = None
-        if torch.all(mask):  # input idx has no padding tokens
             mask = None
 
         device = idx.device
