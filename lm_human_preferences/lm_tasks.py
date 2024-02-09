@@ -4,8 +4,7 @@ from typing import Optional
 import torch
 from torch.utils.data import DataLoader
 
-from lm_human_preferences.language import datasets
-from lm_human_preferences.utils import core as utils
+from lm_human_preferences.language import lm_datasets as datasets
 from lm_human_preferences.utils import hyperparams
 
 
@@ -81,7 +80,7 @@ def query_formatter(hparams: TaskHParams, encoder):
     return query_formatter
 
 
-def make_query_sampler(*, hparams: TaskHParams, encoder, batch_size: int, mode='train', comm=None):
+def make_query_sampler(*, hparams: TaskHParams, encoder, batch_size: int, mode='train'):
     if hparams.start_text:
         start_token, = encoder.encode(hparams.start_text)
     else:
@@ -94,10 +93,11 @@ def make_query_sampler(*, hparams: TaskHParams, encoder, batch_size: int, mode='
 
     # NOTE: MPI not supported here. can add support of DDP later.
     data = datasets.get_dataset(hparams.query_dataset).tf_dataset(
-        sequence_length=hparams.query_length, mode=mode, comm=comm, encoder=encoder,
+        sequence_length=hparams.query_length, mode=mode, encoder=encoder,
         start_token=start_token, end_token=end_token,
     )
-    loader = DataLoader(data, batch_size, pin_memory=True, drop_last=True)
+    loader = DataLoader(data.with_format("torch"), batch_size, drop_last=True,
+                        pin_memory=True, num_workers=1)
     data_iter = iter(loader)
 
     def sampler(scope=None):

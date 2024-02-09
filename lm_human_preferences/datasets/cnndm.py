@@ -78,11 +78,11 @@ def clean_up_start(text):
     text = text.replace('‘', "'")
     return text.strip()
 
-def cnndm_generator(mode, seed=0, shuffle=False, comm=None):
+def cnndm_generator(mode, seed=0, shuffle=False):
     # data originally from https://github.com/abisee/cnn-dailymail
     if mode == 'valid':
         mode = 'val'
-    with open(gcs.download_file_cached(f'https://openaipublic.blob.core.windows.net/lm-human-preferences/datasets/cnndm/url_lists/all_{mode}.txt', comm=comm)) as f:
+    with open(gcs.download_file_cached(f'https://openaipublic.blob.core.windows.net/lm-human-preferences/datasets/cnndm/url_lists/all_{mode}.txt')) as f:
         urls = [line.strip() for line in f]
     if shuffle:
         random.seed(seed)
@@ -90,7 +90,7 @@ def cnndm_generator(mode, seed=0, shuffle=False, comm=None):
     # if n_eval > 0:
     #     urls = urls[:n_eval]
 
-    urls_dir = gcs.download_directory_cached(f'gs://lm-human-preferences/datasets/cnndm/cache_{mode}', comm=comm)
+    urls_dir = gcs.download_directory_cached(f'gs://lm-human-preferences/datasets/cnndm/cache_{mode}')
 
     for i, url in enumerate(urls):
         path = os.path.join(urls_dir, get_path_of_url(url))

@@ -1,6 +1,6 @@
 import random
 
-from torch.utils.data import IterableDataset
+from datasets import IterableDataset
 
 from lm_human_preferences.datasets.books import books_generator
 from lm_human_preferences.datasets.cnndm import cnndm_generator
@@ -10,14 +10,6 @@ _registry: dict[str, "Dataset"] = {}
 
 
 class Dataset:
-
-    class IterableTokens(IterableDataset):
-
-        def __init__(self, generator):
-            self.generator = generator
-
-        def __iter__(self):
-            return self.generator()
 
     def __init__(
             self,
@@ -39,7 +31,6 @@ class Dataset:
             mode,
             encoder=None,
             seed=0,
-            comm=None,
             shuffle=True,
             repeat_count=None,  # Defaults to infinite repeat
             # trims so that it starts right after start token
@@ -52,8 +43,10 @@ class Dataset:
             padding_token = encoder.padding_token
 
         def _generator():
-            inner_gen = self.generator(mode, seed=seed, shuffle=shuffle, comm=comm)
+            inner_gen = self.generator(mode, seed=seed, shuffle=shuffle)
             for text in inner_gen:
+                # strip off tokens before start_token and after end_token.
+                # and pad tokens if len(tokens) < sequence_length
                 tokens = encoder.encode(text)
                 if start_token is not None:
                     try:
@@ -79,7 +72,7 @@ class Dataset:
 
                 yield tokens
 
-        return self.IterableTokens(_generator)
+        return IterableDataset.from_generator(_generator)
 
 
 def get_dataset(name) -> Dataset:
@@ -101,7 +94,7 @@ Books = Dataset(
     generator=books_generator,
 )
 
-def test_generator(mode, seed=0, shuffle=False, comm=None):
+def test_generator(mode, seed=0, shuffle=False):
     while True:
         yield ''.join([random.choice('abcdefghijklmnopqrstuvwxyz.') for _ in range(40)])
 
