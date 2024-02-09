@@ -43,12 +43,11 @@ class SampleBuffer:
             buffer = SampleBuffer(...)
     """
 
-    def __init__(self, *, capacity: int, schemas: dict[str, Schema], name=None) -> None:
-        # TODO: place on CPU?
-        self._capacity = capacity
-        self._total = 0
+    def __init__(self, *, capacity: int, schemas: dict[str, Schema]) -> None:
+        self._capacity = capacity  # max # data items in buffer
+        self._total = 0  # total # data items added
         self._vars = {
-            n: torch.zeros((capacity,) + s.shape, dtype=s.dtype)
+            n: torch.empty((capacity,) + s.shape, dtype=s.dtype)
             for n, s in schemas.items()
         }
 
@@ -69,9 +68,9 @@ class SampleBuffer:
         n = first.shape[0]
         capacity = self._capacity
         self._total += n
-        i0 = (self._total - n) % capacity  # first index of new data item
-        i0n = i0 + n  # total #items to deal with
-        i1 = min(i0n, capacity)  # last index of new data item (exclusive)
+        i0 = (self._total - n) % capacity  # index of first new data item
+        i0n = i0 + n
+        i1 = min(i0n, capacity)  # max index of new data item (exclusive)
         i2 = i1 % capacity  # i1 if i0n <= capacity else 0
         i3 = i0n % capacity  # i1 if i0n <= capacity else i0n % capacity
         for k, d in data.items():
@@ -88,17 +87,17 @@ class SampleBuffer:
         return min(self.total(), self._capacity)
 
     def read(self, indices):
-        """indices: A 1-D Tensor of indices to read from. Each index must be less than
-        capacity."""
+        """indices: A 1-D Tensor of indices to read from. Each index must be less than capacity."""
         return {k: v[indices] for k, v in self._vars.items()}
 
     def data(self):
         return {k: v[:self.size()] for k, v in self._vars.items()}
 
+    @torch.no_grad()
     def sample(self, n, seed=None):
         """Sample n entries with replacement."""
         size = self.size()
-        indices = torch.randint(size, (n,))
+        indices = torch.randint(high=size, size=(n,))
         return self.read(indices)
 
     def write(self, indices, updates):
