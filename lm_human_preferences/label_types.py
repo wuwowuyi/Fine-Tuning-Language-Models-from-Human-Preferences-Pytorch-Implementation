@@ -43,7 +43,7 @@ class PickBest(LabelType):
 
     def loss(self, reward_model, labels):
         logits = torch.stack([reward_model(labels['query'], labels[f'sample{i}'])
-                         for i in range(self.num_responses)], dim=1)
+                         for i in range(self.num_responses)], dim=1)  # shape=(b, num_responses)
         error = F.cross_entropy(logits, target=labels['best'])
         return dict(loss=error, error=error)
 
