@@ -36,7 +36,7 @@ class RewardModelTrainer(nn.Module):
 
     def forward(self, tokens):
         lm_output = self.model(tokens, padding_token=self.padding_token)
-        reward = lm_output['hp'][:, -1]
+        reward = lm_output['hp'][:, -1]  # shape=(b,)
         return self.reward_gain * reward + self.reward_bias
 
     def reset_reward_scale(self):
