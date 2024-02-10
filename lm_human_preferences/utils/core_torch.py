@@ -33,6 +33,15 @@ def take_top_p_logits(logits: torch.Tensor, p: float):
     return torch.where(logits >= min_logits, logits, -float('inf'))
 
 
+def safe_zip(*args):
+    """Zip, but require all sequences to be the same length."""
+    args = tuple(map(tuple, args))
+    for a in args[1:]:
+        if len(args[0]) != len(a):
+            raise ValueError(f'Lengths do not match: {[len(a) for a in args]}')
+    return zip(*args)
+
+
 class SampleBuffer:
     """A circular buffer for storing and sampling data.
 
@@ -111,4 +120,39 @@ class SampleBuffer:
     def write_add(self, indices, deltas):
         for k, d in deltas.items():
             self._vars[k][indices] += d
+
+
+class FlatStats:
+    """A bunch of statistics stored as a single flat tensor."""
+
+    def __init__(self, keys, flat):
+        keys = tuple(keys)
+        flat = torch.as_tensor(flat, dtype=torch.float32)
+        assert [len(keys)] == list(flat.shape)
+        self.keys = keys
+        self.flat = flat
+
+    @staticmethod
+    def from_dict(stats):
+        for k, v in stats.items():
+            if v.dtype != torch.float32:
+                raise ValueError('Statistic %s has dtype %r, expected %r' % (k, v.dtype, torch.float32))
+        keys = tuple(sorted(stats.keys()))
+        flat = torch.stack([stats[k] for k in keys])
+        return FlatStats(keys, flat)
+
+    def concat(self, more):
+        dups = set(self.keys) & set(more.keys)
+        if dups:
+            raise ValueError('Duplicate statistics: %s' % ', '.join(dups))
+        return FlatStats(self.keys + more.keys, torch.concat([self.flat, more.flat], dim=0))
+
+    def as_dict(self):
+        return dict(safe_zip(self.keys, self.flat))
+
+    def with_values(self, flat):
+        return FlatStats(self.keys, flat)
+
+    def map_flat(self, f):
+        return FlatStats(self.keys, f(self.flat))
 
