@@ -20,14 +20,13 @@ class Policy(nn.Module):
 
         super().__init__()
         self.trained_model = trained_model
-        self.model_hparams = trained_model.hparams()  # TODO: set drop out to zeros for policy
         self.encoder = self.trained_model.encoding.get_encoder()
         self.padding_token = self.encoder.padding_token
 
         self.embed_queries = embed_queries
         self.temperature = temperature  # used for sampling
 
-        self.lm_model = trained_model.init_model('policy')  # pre-trained language model
+        self.lm_model, self.lm_params = self.trained_model.init_model('policy')  # pre-trained language model
         self.respond = self.respond_op
         self.analyze_responses = self.analyze_responses_op
 

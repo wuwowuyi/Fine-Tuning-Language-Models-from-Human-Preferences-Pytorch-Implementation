@@ -13,13 +13,12 @@ class RewardModel(nn.Module):
     ):
         super().__init__()
         self.trained_model = trained_model
-        self.hparams = trained_model.hparams()
         self.device = self.trained_model.device
         self.encoder = self.trained_model.encoding.get_encoder()
         self.padding_token = self.encoder.padding_token
 
         # also use a gpt-2 model
-        self.lm_model = trained_model.init_model('reward')  # pre-trained language model
+        self.lm_model, self.lm_params = self.trained_model.init_model('reward')  # pre-trained language model
         self.reward_gain = nn.Parameter(torch.ones(1, device=self.device))
         self.reward_bias = nn.Parameter(torch.zeros(1, device=self.device))
 
