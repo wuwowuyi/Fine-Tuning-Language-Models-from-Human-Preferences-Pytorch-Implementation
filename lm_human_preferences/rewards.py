@@ -2,40 +2,36 @@
 
 import os
 
-import numpy as np
 import torch
 from torch import nn
 
 from lm_human_preferences.language import trained_models, model
-from lm_human_preferences.train_reward import RunHParams
 
 
 # TODO: sort out device and gradient!
 
-class RewardModelTrainer(nn.Module):
+class RewardModel(nn.Module):
     def __init__(
             self,
-            trained_model,
-            run_hparams: RunHParams
+            trained_model
     ):
         super().__init__()
         self.trained_model = trained_model
         self.hparams = trained_model.hparams()
+        self.device = self.trained_model.device
         self.encoder = self.trained_model.encoding.get_encoder()
         self.padding_token = self.encoder.padding_token
 
-        self.run_hparams = run_hparams
-        self.device = self.run_hparams.device
         # also use a gpt-2 model
         self.lm_model = trained_model.init_model('reward')  # pre-trained language model
         self.reward_gain = nn.Parameter(torch.ones(1, device=self.device))
-        self.reward_bias = nn.Parameter(torch.zeros(0, device=self.device))
+        self.reward_bias = nn.Parameter(torch.zeros(1, device=self.device))
 
     def get_encoder(self):
         return self.encoder
 
     def forward(self, tokens):
-        lm_output = self.model(tokens, padding_token=self.padding_token)
+        lm_output = self.lm_model(tokens, padding_token=self.padding_token)
         reward = lm_output['hp'][:, -1]  # shape=(b,)
         return self.reward_gain * reward + self.reward_bias
 
@@ -56,6 +52,13 @@ class RewardModelTrainer(nn.Module):
     def get_rewards(self, queries, responses):
         tokens = torch.concat((queries, responses), dim=1)
         return self(tokens)
+
+    def configure_optimizers(self, hparams):
+        device_type = 'cuda' if 'cuda' in self.device else 'cpu'
+        return self.lm_model.configure_optimizers(
+            hparams.weight_decay, hparams.lr, hparams.betas, device_type,
+            {'reward_gain': self.reward_gain, 'reward_bias': self.reward_bias}
+        )
 
 
 class TrainedRewardModel():
