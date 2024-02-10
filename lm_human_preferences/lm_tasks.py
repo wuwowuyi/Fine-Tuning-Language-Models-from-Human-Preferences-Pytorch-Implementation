@@ -1,37 +1,9 @@
-from dataclasses import dataclass, field
-from typing import Optional
-
 import torch
 from torch.utils.data import DataLoader
 
 from lm_human_preferences.language import lm_datasets as datasets
-from lm_human_preferences.utils import hyperparams
+from lm_human_preferences.params import TaskHParams
 
-
-@dataclass
-class PolicyHParams(hyperparams.HParams):
-    temperature: float = 1.0
-    initial_model: str = None
-
-@dataclass
-class TaskHParams(hyperparams.HParams):
-    # Query params
-    query_length: int = None
-    query_dataset: str = None
-    query_prefix: str = ''
-    query_suffix: str = ''
-    start_text: Optional[str] = '.'
-    end_text: Optional[str] = None
-
-    # Response params
-    response_length: int = None
-
-    # Truncate response after the first occurrence of this token at or after index after when sampling.
-    truncate_token: Optional[int] = None
-    truncate_after: int = 0
-    penalty_reward_value: int = -1
-
-    policy: PolicyHParams = field(default_factory=PolicyHParams)
 
 #returns a postprocessing function
 #it is applied to responses before they are scored
