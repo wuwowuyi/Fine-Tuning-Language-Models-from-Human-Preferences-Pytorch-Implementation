@@ -42,6 +42,10 @@ def safe_zip(*args):
     return zip(*args)
 
 
+def ceil_div(a, b):
+    return (a - 1) // b + 1
+
+
 class SampleBuffer:
     """A circular buffer for storing and sampling data.
 
