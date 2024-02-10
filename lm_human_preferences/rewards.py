@@ -37,7 +37,7 @@ class RewardModel(nn.Module):
 
     def reset_reward_scale(self):
         self.reward_gain.copy_(torch.tensor(1))
-        self.reward_bias.copy_(torch.zeros(0))
+        self.reward_bias.copy_(torch.zeros(1))
 
     def set_reward_norm(self, *, old_mean, old_std, new_mean, new_std):
         """Given old_mean+-old_std of reward_model, change gain and bias to get N(new_mean,new_std)."""
