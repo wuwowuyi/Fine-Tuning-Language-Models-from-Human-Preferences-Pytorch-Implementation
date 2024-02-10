@@ -115,7 +115,7 @@ class Block(nn.Module):
 #     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
 
 @dataclass
-class HParams(hyperparams.HParams):
+class ModelParams(hyperparams.HParams):
     # Encoding (set during loading process)
     n_vocab: int = 50257  # vocab_size
 
@@ -274,8 +274,8 @@ class GPT(nn.Module):
         for k in override_args.keys():
             config_args[k] = override_args[k]
 
-        # create a from-scratch initialized minGPT model
-        hparams = HParams()
+        # create a from-scratch initialized GPT model
+        hparams = ModelParams()
         hparams.override_from_dict(config_args)
         model = GPT(hparams)
 
