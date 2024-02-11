@@ -52,6 +52,15 @@ def ceil_div(a, b):
     return (a - 1) // b + 1
 
 
+def pearson_r(x: torch.Tensor, y: torch.Tensor):
+    assert x.dim() == 1
+    assert y.dim() == 1
+    x_var, x_mean = torch.var_mean(x, dim=0, correction=0)
+    y_var, y_mean = torch.var_mean(y, dim=0, correction=0)
+    cov = torch.mean((x - x_mean)*(y - y_mean), dim=0)
+    return cov / torch.sqrt(x_var * y_var)
+
+
 class SampleBuffer:
     """A circular buffer for storing and sampling data.
 
