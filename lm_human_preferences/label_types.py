@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 
+import numpy as np
 import torch
 from torch.nn import functional as F
 
@@ -36,12 +37,12 @@ class PickBest(LabelType):
         self.num_responses = num_responses
 
     def label_schemas(self):
-        return dict(best=Schema(torch.int32, ()))
+        return dict(best=Schema(np.int32, ()))
 
     def target_scales(self, labels):
         return None
 
-    def loss(self, reward_model, labels):
+    def loss(self, reward_model, labels: torch.Tensor):
         logits = torch.stack([reward_model(labels['query'], labels[f'sample{i}'])
                          for i in range(self.num_responses)], dim=1)  # shape=(b, num_responses)
         error = F.cross_entropy(logits, target=labels['best'])
@@ -49,8 +50,8 @@ class PickBest(LabelType):
 
     def question_schemas(self, *, query_length, response_length) -> dict[str, Schema]:
         return dict(
-            query=Schema(torch.int32, (query_length,)),
-            **{f"sample{i}": Schema(torch.int32, (response_length,)) for i in range(self.num_responses)}
+            query=Schema(np.int32, (query_length,)),
+            **{f"sample{i}": Schema(np.int32, (response_length,)) for i in range(self.num_responses)}
         )
 
 

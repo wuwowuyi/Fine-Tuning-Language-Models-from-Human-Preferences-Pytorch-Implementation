@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, Tuple, Optional
 
+import numpy as np
 import torch
 from torch.nn import functional as F
 
@@ -65,7 +66,7 @@ class SampleBuffer:
         self._capacity = capacity  # max # data items in buffer
         self._total = 0  # total # data items added
         self._vars = {
-            n: torch.empty((capacity,) + s.shape, dtype=s.dtype)
+            n: np.empty((capacity,) + s.shape, dtype=s.dtype)
             for n, s in schemas.items()
         }
 
@@ -111,7 +112,6 @@ class SampleBuffer:
     def data(self):
         return {k: v[:self.size()] for k, v in self._vars.items()}
 
-    @torch.no_grad()
     def sample(self, n, seed=None):
         """Sample n entries with replacement."""
         size = self.size()
