@@ -42,11 +42,11 @@ class Policy(nn.Module):
         """Given a query, sample a sequence of given `length`. """
         contexts = self.embed_queries(queries)  # shape=(b, t)
         contexts_length = contexts.shape[1]
-        result = self.sample(contexts, length)
+        result = self._sample(contexts, length)
         result['responses'] = result['responses'][:, contexts_length:]
         return result
 
-    def sample(self, context: torch.Tensor, length: int, top_k: int = 0, top_p: float = 1.0):
+    def _sample(self, context: torch.Tensor, length: int, top_k: int = 0, top_p: float = 1.0):
         """
         Sequentially sample `length` tokens given `context`.
         :param context: context.shape=(b, t) where b is batch_size, t is length of sequence.
