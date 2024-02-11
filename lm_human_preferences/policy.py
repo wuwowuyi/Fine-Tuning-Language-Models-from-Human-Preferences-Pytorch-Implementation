@@ -13,6 +13,7 @@ class Policy(nn.Module):
     def __init__(
             self,
             trained_model: TrainedModel,
+            encoder,
             *,
             embed_queries=lambda queries: queries,
             temperature=1.0
@@ -20,9 +21,7 @@ class Policy(nn.Module):
 
         super().__init__()
         self.trained_model = trained_model
-        self.encoder = self.trained_model.encoding.get_encoder()
-        self.padding_token = self.encoder.padding_token
-
+        self.encoder = encoder
         self.embed_queries = embed_queries
         self.temperature = temperature  # used for sampling
 
@@ -30,11 +29,8 @@ class Policy(nn.Module):
         self.respond = self.respond_op
         self.analyze_responses = self.analyze_responses_op
 
-    def get_encoder(self):
-        return self.encoder
-
     def forward(self, tokens):
-        lm_output = self.lm_model(tokens, padding_token=self.padding_token)
+        lm_output = self.lm_model(tokens, padding_token=self.encoder.padding_token)
         # need to slice logits since we don't want to generate special tokens
         logits = lm_output['lm_logits'][:, :, :self.model_hparams.n_vocab]  # shape=(b, t, n_vocab)
         return {

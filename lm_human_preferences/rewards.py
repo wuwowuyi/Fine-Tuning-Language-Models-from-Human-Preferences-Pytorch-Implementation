@@ -9,12 +9,13 @@ from torch import nn
 class RewardModel(nn.Module):
     def __init__(
             self,
-            trained_model
+            trained_model,
+            encoder
     ):
         super().__init__()
         self.trained_model = trained_model
         self.device = self.trained_model.device
-        self.encoder = self.trained_model.encoding.get_encoder()
+        self.encoder = encoder
         self.padding_token = self.encoder.padding_token
 
         # also use a gpt-2 model
