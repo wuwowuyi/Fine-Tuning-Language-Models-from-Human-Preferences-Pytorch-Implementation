@@ -26,8 +26,6 @@ class Policy(nn.Module):
         self.temperature = temperature  # used for sampling
 
         self.lm_model, self.lm_params = self.trained_model.init_model('policy')  # pre-trained language model
-        self.respond = self.respond_op
-        self.analyze_responses = self.analyze_responses_op
 
     def forward(self, tokens):
         lm_output = self.lm_model(tokens, padding_token=self.encoder.padding_token)
@@ -39,7 +37,7 @@ class Policy(nn.Module):
         }
 
     @torch.no_grad()
-    def respond_op(self, queries, length):
+    def respond(self, queries, length):
         """Given a query, sample a sequence of given `length`. """
         contexts = self.embed_queries(queries)  # shape=(b, t)
         contexts_length = contexts.shape[1]
@@ -84,7 +82,7 @@ class Policy(nn.Module):
         }
 
     @torch.no_grad()
-    def analyze_responses_op(self, queries: torch.Tensor, responses: torch.Tensor):
+    def analyze_responses(self, queries: torch.Tensor, responses: torch.Tensor):
         contexts = self.embed_queries(queries)
         context_length = contexts.shape[1]
         batch, length = responses.shape
