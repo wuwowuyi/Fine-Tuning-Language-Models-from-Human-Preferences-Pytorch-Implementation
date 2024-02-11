@@ -18,7 +18,6 @@ class RewardModel(nn.Module):
         self.encoder = encoder
         self.padding_token = self.encoder.padding_token
 
-        # also use a gpt-2 model
         self.lm_model, self.lm_params = self.trained_model.init_model('reward')  # pre-trained language model
         self.reward_gain = nn.Parameter(torch.ones(1, device=self.device))
         self.reward_bias = nn.Parameter(torch.zeros(1, device=self.device))
@@ -28,10 +27,12 @@ class RewardModel(nn.Module):
         reward = lm_output['hp'][:, -1]  # shape=(b,)
         return self.reward_gain * reward + self.reward_bias
 
+    @torch.no_grad()
     def reset_reward_scale(self):
         self.reward_gain.copy_(torch.ones(1))
         self.reward_bias.copy_(torch.zeros(1))
 
+    @torch.no_grad()
     def set_reward_norm(self, *, old_mean, old_std, new_mean, new_std):
         """Given old_mean+-old_std of reward_model, change gain and bias to get N(new_mean,new_std)."""
         old_gain, old_bias = self.reward_gain, self.reward_bias
