@@ -1,4 +1,5 @@
 """Byte pair encoding utilities"""
+from __future__ import annotations
 
 import json
 import os
@@ -115,9 +116,12 @@ class ReversibleEncoder:
         return text
 
 
-def read_file(url) -> bytes:
-    assert url.startswith("https://")
-    return requests.get(url).content
+def read_file(url: str) -> bytes:
+    if url.startswith("https://"):
+        return requests.get(url).content
+    else:
+        with open(url, "rb") as f:
+            return f.read()
 
 
 class Encoding:
