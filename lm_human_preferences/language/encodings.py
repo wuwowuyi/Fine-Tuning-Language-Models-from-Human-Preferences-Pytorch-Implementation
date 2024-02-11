@@ -165,7 +165,7 @@ class Encoding:
         assert len(encoder_dict) == self.n_vocab
         encoder = ReversibleEncoder(encoder=encoder_dict, bpe_merges=bpe_merges, eot_token=self.eot_token)
         assert encoder.padding_token >= self.n_vocab
-        return
+        return encoder
 
 
 Main = Encoding("main", n_vocab=50257, eot_token=50256)
