@@ -1,11 +1,8 @@
 import hashlib
-import os
-import random
 import re
 
 import ftfy
-
-from lm_human_preferences.utils import gcs
+from datasets import load_dataset
 
 dm_single_close_quote = u'\u2019' # unicode
 dm_double_close_quote = u'\u201d'
@@ -78,27 +75,19 @@ def clean_up_start(text):
     text = text.replace('‘', "'")
     return text.strip()
 
+
 def cnndm_generator(mode, seed=0, shuffle=False):
-    # data originally from https://github.com/abisee/cnn-dailymail
     if mode == 'valid':
         mode = 'val'
-    with open(gcs.download_file_cached(f'https://openaipublic.blob.core.windows.net/lm-human-preferences/datasets/cnndm/url_lists/all_{mode}.txt')) as f:
-        urls = [line.strip() for line in f]
+
+    dataset = load_dataset("cnn_dailymail", split=mode, streaming=True)  # returns an IterableDataset
     if shuffle:
-        random.seed(seed)
-        random.shuffle(urls)
-    # if n_eval > 0:
-    #     urls = urls[:n_eval]
+        dataset = dataset.shuffle(seed, buffer_size=100000)
 
-    urls_dir = gcs.download_directory_cached(f'gs://lm-human-preferences/datasets/cnndm/cache_{mode}')
-
-    for i, url in enumerate(urls):
-        path = os.path.join(urls_dir, get_path_of_url(url))
-        text = open(path).read()
-        text = clean_up_start(text)
+    for x in dataset:  # TODO: to review
+        text = clean_up_start(x['article'])
         text = ftfy.fix_text(text)
 
         text = re.sub(r"\n{3,}", "\n\n", text)
         text = text.split('@highlight')[0].strip()
         yield text
-        # _, ref_sents = get_art_abs(path)

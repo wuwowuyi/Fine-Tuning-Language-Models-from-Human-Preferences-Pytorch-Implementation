@@ -4,7 +4,7 @@ import re
 
 import ftfy
 
-from lm_human_preferences.utils import gcs
+from lm_human_preferences.utils import azure
 
 
 def tldr_generator(mode, seed=0, shuffle=False):
@@ -14,7 +14,7 @@ def tldr_generator(mode, seed=0, shuffle=False):
         mode = 'valid' # validation set serves as training set, since we don't have access..
     assert mode in ['train', 'valid']
 
-    with open(gcs.download_file_cached(f'https://openaipublic.blob.core.windows.net/lm-human-preferences/tldr/{mode}-subset.json')) as f:
+    with open(azure.download_file_cached(f'https://openaipublic.blob.core.windows.net/lm-human-preferences/tldr/{mode}-subset.json')) as f:
         datas = json.load(f)
 
     if shuffle:
