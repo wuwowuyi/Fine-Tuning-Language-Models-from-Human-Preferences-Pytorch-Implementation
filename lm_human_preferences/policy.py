@@ -21,6 +21,7 @@ class Policy(nn.Module):
 
         super().__init__()
         self.trained_model = trained_model
+        self.device = self.trained_model.device
         self.encoder = encoder
         self.embed_queries = embed_queries
         self.temperature = temperature  # used for sampling
@@ -30,14 +31,14 @@ class Policy(nn.Module):
     def forward(self, tokens):
         lm_output = self.lm_model(tokens, padding_token=self.encoder.padding_token)
         # need to slice logits since we don't want to generate special tokens
-        logits = lm_output['lm_logits'][:, :, :self.model_hparams.n_vocab]  # shape=(b, t, n_vocab)
+        logits = lm_output['lm_logits'][:, :, :self.lm_params.n_vocab]  # shape=(b, t, n_vocab)
         return {
             'logits': logits,
             'values': lm_output['hp'],
         }
 
     @torch.no_grad()
-    def respond(self, queries, length):
+    def respond(self, queries: torch.Tensor, length: int) -> dict:
         """Given a query, sample a sequence of given `length`. """
         contexts = self.embed_queries(queries)  # shape=(b, t)
         contexts_length = contexts.shape[1]
@@ -51,12 +52,12 @@ class Policy(nn.Module):
         :param context: context.shape=(b, t) where b is batch_size, t is length of sequence.
         :param length: number of tokens to sample sequentially
         """
-        beta = 1 / torch.max(torch.as_tensor([self.temperature, 1e-10], dtype=torch.float32))
+        beta = 1 / torch.max(torch.as_tensor([self.temperature, 1e-10], dtype=torch.float32, device=self.device))
         log_probs = []  # each item.shape=(b,)
         values = []  # each item.shape=(b,)
         for _ in range(length):
             # crop context if it's too long
-            context_cond = context if context.size(1) <= self.model_hparams.n_ctx else context[:, -self.model_hparams.n_ctx:]
+            context_cond = context if context.size(1) <= self.lm_params.n_ctx else context[:, -self.lm_params.n_ctx:]
             result = self(context_cond)
             logits = result['logits'][:, -1, :] * beta  # shape=(b, n_vocab)
             values.append(result['values'][:, -1])  # use last token's value
@@ -90,7 +91,7 @@ class Policy(nn.Module):
         result = self(tokens)
         logits = result['logits'][:, context_length-1:-1]  # shape=(b, length, n_vocab)
 
-        beta = 1 / torch.max(torch.as_tensor([self.temperature, 1e-10], dtype=torch.float32))
+        beta = 1 / torch.max(torch.as_tensor([self.temperature, 1e-10], dtype=torch.float32, device=self.device))
         logits *= beta
         logp = -F.cross_entropy(logits.view(batch * length, -1), responses.view(-1), reduction='none')  # E_p[log(q)] of logits q.
         p = F.softmax(logits, dim=-1)  # shape=logits.shape

@@ -23,16 +23,13 @@ class RewardModel(nn.Module):
         self.reward_gain = nn.Parameter(torch.ones(1, device=self.device))
         self.reward_bias = nn.Parameter(torch.zeros(1, device=self.device))
 
-    def get_encoder(self):
-        return self.encoder
-
     def forward(self, tokens):
         lm_output = self.lm_model(tokens, padding_token=self.padding_token)
         reward = lm_output['hp'][:, -1]  # shape=(b,)
         return self.reward_gain * reward + self.reward_bias
 
     def reset_reward_scale(self):
-        self.reward_gain.copy_(torch.tensor(1))
+        self.reward_gain.copy_(torch.ones(1))
         self.reward_bias.copy_(torch.zeros(1))
 
     def set_reward_norm(self, *, old_mean, old_std, new_mean, new_std):
@@ -50,7 +47,7 @@ class RewardModel(nn.Module):
         return self(tokens)
 
     def configure_optimizers(self, hparams):
-        device_type = 'cuda' if 'cuda' in self.device else 'cpu'
+        device_type = 'cuda' if 'cuda' in self.device else self.device
         return self.lm_model.configure_optimizers(
             hparams.weight_decay, hparams.lr, hparams.betas, device_type,
             {'reward_gain': self.reward_gain, 'reward_bias': self.reward_bias}

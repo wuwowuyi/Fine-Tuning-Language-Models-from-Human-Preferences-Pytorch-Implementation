@@ -5,6 +5,11 @@ import torch
 from torch.nn import functional as F
 
 
+def get_device(t: torch.Tensor):
+    device_ord: int = t.get_device()
+    return 'cpu' if device_ord == -1 else 'cuda:' + str(device_ord)
+
+
 @dataclass
 class Schema:
     dtype: Any

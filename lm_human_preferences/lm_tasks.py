@@ -3,6 +3,7 @@ from torch.utils.data import DataLoader
 
 from lm_human_preferences.language import lm_datasets as datasets
 from lm_human_preferences.params import TaskHParams
+from lm_human_preferences.utils import core_torch as utils
 
 
 #returns a postprocessing function
@@ -42,17 +43,18 @@ def query_formatter(hparams: TaskHParams, encoder):
 
     NOTE: Both of these are lists of tokens
     """
-    def query_formatter(queries):
+    def query_formatter(queries: torch.Tensor):
         batch_size = queries.shape[0]
-        prefix_tokens = torch.as_tensor(encoder.encode(hparams.query_prefix), dtype=torch.int32)
+        device = utils.get_device(queries)
+        prefix_tokens = torch.as_tensor(encoder.encode(hparams.query_prefix), dtype=torch.int32, device=device)
         tiled_prefix = torch.tile(prefix_tokens[None], (batch_size, 1))
-        suffix_tokens = torch.as_tensor(encoder.encode(hparams.query_suffix), dtype=torch.int32)
+        suffix_tokens = torch.as_tensor(encoder.encode(hparams.query_suffix), dtype=torch.int32, device=device)
         tiled_suffix = torch.tile(suffix_tokens[None], (batch_size, 1))
         return torch.cat([tiled_prefix, queries, tiled_suffix], 1)
     return query_formatter
 
 
-def make_query_sampler(*, hparams: TaskHParams, encoder, batch_size: int, mode='train'):
+def make_query_sampler(*, hparams: TaskHParams, encoder, batch_size: int, mode='train', device: str):
     if hparams.start_text:
         start_token, = encoder.encode(hparams.start_text)
     else:
@@ -72,7 +74,7 @@ def make_query_sampler(*, hparams: TaskHParams, encoder, batch_size: int, mode='
                         pin_memory=True, num_workers=1)
     data_iter = iter(loader)
 
-    def sampler(scope=None):
-        context_tokens = torch.as_tensor(next(data_iter), dtype=torch.int32)
+    def sampler():
+        context_tokens = torch.as_tensor(next(data_iter), dtype=torch.int32, device=device)
         return dict(tokens=context_tokens)
     return sampler
