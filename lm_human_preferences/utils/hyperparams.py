@@ -6,7 +6,8 @@ from functools import lru_cache
 
 from typeguard import check_type
 
-#from lm_human_preferences.utils import gcs
+
+#from typeguard import check_type
 
 
 class HParams:
@@ -121,7 +122,7 @@ class HParams:
         assert is_dataclass(self), f"You forgot to annotate {type(self)} with @dataclass"
         for f in fields(self):
             fieldval = getattr(self, f.name)
-            check_type(prefix + f.name, fieldval, f.type)
+            check_type(fieldval, f.type)
             if isinstance(fieldval, HParams):
                 fieldval.validate(prefix=prefix + f.name + '.')
 

@@ -1,32 +1,31 @@
-import concurrent.futures
 import os
-import subprocess
-from functools import partial
+import time
 
-import cloudpickle
 import fire
+import wandb
 
-def launch(name, f, *, namespace='safety', mode='local', mpi=1) -> None:
-    if mode == 'local':
-        with open('/tmp/pickle_fn', 'wb') as file:
-            cloudpickle.dump(f, file)
 
-        subprocess.check_call(['mpiexec', '-n', str(mpi), 'python', '-c', 'import sys; import pickle; pickle.loads(open("/tmp/pickle_fn", "rb").read())()'])
-        return
-    raise Exception('Other modes unimplemented!')
+# def launch(name, f, *, namespace='safety', mode='local') -> None:
+#     if mode == 'local':
+#         with open('/tmp/pickle_fn', 'wb') as file:
+#             cloudpickle.dump(f, file)
+#
+#         subprocess.check_call(['python', '-c', 'import sys; import pickle; pickle.loads(open("/tmp/pickle_fn", "rb").read())()'])
+#         return
+#     raise Exception('Other modes unimplemented!')
 
-def parallel(jobs, mode):
-    if mode == 'local':
-        assert len(jobs) == 1, "Cannot run jobs in parallel locally"
-        for job in jobs:
-            job()
-    else:
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = [executor.submit(job) for job in jobs]
-            for f in futures:
-                f.result()
+# def parallel(jobs, mode):
+#     if mode == 'local':
+#         assert len(jobs) == 1, "Cannot run jobs in parallel locally"
+#         for job in jobs:
+#             job()
+#     else:
+#         with concurrent.futures.ThreadPoolExecutor() as executor:
+#             futures = [executor.submit(job) for job in jobs]
+#             for f in futures:
+#                 f.result()
 
-def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=False, mpi=1, mode='local', save_dir=None):
+def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=False, mode='local', save_dir=None):
     jobs = []
     for trial in trials:  # each trial is a group of hparams
         descriptors = []
@@ -44,15 +43,17 @@ def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=Fa
             hparams.override_from_str_dict(extra_hparams)
         job_name = (name + '/' + '-'.join(descriptors)).rstrip('/')
         hparams.validate()
+
         if dry_run:
             print(f"{job_name}: {kwargs}")
         else:
+            if hparams.wandb_log:
+                wandb_run_name = f'{name}-' + str(time.time())  # 'run' + str(time.time())
+                wandb.init(project=hparams.wandb_project, name=wandb_run_name, config=hparams)
             if save_dir:
                 hparams.run.save_dir = os.path.join(save_dir, job_name)
-            trial_fn = partial(fn, hparams)
-            jobs.append(partial(launch, job_name, trial_fn, mpi=mpi, mode=mode))
+            fn(hparams)
 
-    parallel(jobs, mode=mode)
 
 def main(commands_dict):
     """Similar to fire.Fire, but with support for multiple commands without having a class."""

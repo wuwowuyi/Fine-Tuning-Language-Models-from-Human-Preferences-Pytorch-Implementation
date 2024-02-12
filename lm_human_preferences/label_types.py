@@ -1,12 +1,13 @@
 """Interface and implementations of label types for a reward model."""
 
 from abc import ABC, abstractmethod
+from typing import Optional
 
 import numpy as np
 import torch
 from torch.nn import functional as F
 
-from lm_human_preferences.utils.core import Schema, pearson_r
+from lm_human_preferences.utils.core_torch import Schema, pearson_r
 
 
 class LabelType(ABC):
@@ -15,7 +16,7 @@ class LabelType(ABC):
         """Schema for the human annotations."""
 
     @abstractmethod
-    def target_scales(self, labels: dict[str, torch.Tensor]) -> torch.Tensor | None:
+    def target_scales(self, labels: dict[str, torch.Tensor]) -> Optional[torch.Tensor]:
         """Extracts scalars out of labels whose scale corresponds to the reward model's output.
            May be none if the labels have no such information."""
 
@@ -37,7 +38,7 @@ class PickBest(LabelType):
         self.num_responses = num_responses
 
     def label_schemas(self):
-        return dict(best=Schema(np.int32, ()))
+        return dict(best=Schema(torch.int32, ()))
 
     def target_scales(self, labels):
         return None
@@ -50,8 +51,8 @@ class PickBest(LabelType):
 
     def question_schemas(self, *, query_length, response_length) -> dict[str, Schema]:
         return dict(
-            query=Schema(np.int32, (query_length,)),
-            **{f"sample{i}": Schema(np.int32, (response_length,)) for i in range(self.num_responses)}
+            query=Schema(torch.int32, (query_length,)),
+            **{f"sample{i}": Schema(torch.int32, (response_length,)) for i in range(self.num_responses)}
         )
 
 

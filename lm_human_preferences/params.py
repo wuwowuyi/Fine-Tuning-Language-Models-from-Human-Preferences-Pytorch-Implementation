@@ -76,7 +76,7 @@ class TrainRewardParams(hyperparams.HParams):
 
     # wandb configs
     wandb_project: str = 'lm_human_preferences'
-    wandb_log: bool = True
+    wandb_log: bool = False
 
     def validate(self, *, prefix=''):
         super().validate(prefix=prefix)

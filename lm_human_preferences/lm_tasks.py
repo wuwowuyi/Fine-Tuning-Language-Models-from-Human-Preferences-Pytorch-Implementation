@@ -71,9 +71,10 @@ def make_query_sampler(*, hparams: TaskHParams, encoder, batch_size: int, mode='
         start_token=start_token, end_token=end_token,
     )
     loader = DataLoader(data.with_format("torch"), batch_size, drop_last=True,
-                        pin_memory=True, num_workers=1)
+                        pin_memory=True, num_workers=0)  # TODO: num_workers
     data_iter = iter(loader)
 
     def sampler():
+
         return torch.as_tensor(next(data_iter), dtype=torch.int32, device=device)
     return sampler
