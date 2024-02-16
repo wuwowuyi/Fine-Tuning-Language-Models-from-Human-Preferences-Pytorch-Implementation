@@ -1,8 +1,8 @@
+import os
 import random
+import numpy as np
 
-from datasets import IterableDataset
-
-from lm_human_preferences.datasets.books import books_generator
+from lm_human_preferences.datasets import books
 from lm_human_preferences.datasets.cnndm import cnndm_generator
 from lm_human_preferences.datasets.tldr import tldr_generator
 
@@ -10,6 +10,9 @@ _registry: dict[str, "Dataset"] = {}
 
 
 class Dataset:
+    datasets_names = {
+        'books': books.dataset_name,
+    }
 
     def __init__(
             self,
@@ -27,12 +30,10 @@ class Dataset:
     def tf_dataset(
             self,
             sequence_length,
+            batch_size,
             *,
-            mode,
+            mode,  # 'train' or 'test'
             encoder=None,
-            seed=0,
-            shuffle=True,
-            repeat_count=None,  # Defaults to infinite repeat
             # trims so that it starts right after start token
             start_token=None,
             # trims off last end_token
@@ -42,37 +43,37 @@ class Dataset:
         if padding_token is None:
             padding_token = encoder.padding_token
 
-        def _generator():
-            inner_gen = self.generator(mode, seed=seed, shuffle=shuffle)
-            for text in inner_gen:
-                # strip off tokens before start_token and after end_token.
-                # and pad tokens if len(tokens) < sequence_length
-                tokens = encoder.encode(text)
-                if start_token is not None:
-                    try:
-                        first_index = tokens.index(start_token)+1
-                        if first_index < len(tokens):
-                            tokens = tokens[first_index:]
-                    except:
-                        continue
+        data = np.memmap(os.path.join(os.path.dirname(__file__), "../datasets",
+                                      f'{self.datasets_names[self.name]}_{mode}.bin'), dtype=np.uint16, mode='r')
+        def _get_batch():
+            text = self.generator(data, batch_size)
+            # strip off tokens before start_token and after end_token.
+            # and pad tokens if len(tokens) < sequence_length
+            tokens = encoder.encode(text)
+            if start_token is not None:
+                try:
+                    first_index = tokens.index(start_token)+1
+                    if first_index < len(tokens):
+                        tokens = tokens[first_index:]
+                except:
+                    pass
 
-                tokens = tokens[:sequence_length]
+            tokens = tokens[:sequence_length]
 
-                if end_token is not None:
-                    try:
-                        last_index = len(tokens)-tokens[::-1].index(end_token)
-                        tokens = tokens[:last_index]
-                    except:
-                        continue
+            if end_token is not None:
+                try:
+                    last_index = len(tokens)-tokens[::-1].index(end_token)
+                    tokens = tokens[:last_index]
+                except:
+                    pass
 
-                if len(tokens) < sequence_length:
-                    tokens = tokens + [padding_token] * (sequence_length - len(tokens))
+            if len(tokens) < sequence_length:
+                tokens = tokens + [padding_token] * (sequence_length - len(tokens))
 
-                assert len(tokens) == sequence_length
+            assert len(tokens) == sequence_length
+            return tokens
 
-                yield tokens
-
-        return IterableDataset.from_generator(_generator)
+        return _get_batch
 
 
 def get_dataset(name) -> Dataset:
@@ -91,7 +92,7 @@ Tldr = Dataset(
 
 Books = Dataset(
     "books",
-    generator=books_generator,
+    generator=books.get_batch
 )
 
 def test_generator(mode, seed=0, shuffle=False):

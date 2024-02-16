@@ -1,17 +1,72 @@
+import os
+
+import numpy
+import numpy as np
+import tiktoken
+import torch
 from datasets import load_dataset  # hugging face datasets library
+from tqdm import tqdm
 
 
-def books_generator(mode, seed=0, shuffle=False):
-    # broken link
-    # datas = [
-    #     json.loads(line) for line in
-    #     open(gcs.download_file_cached(f'https://openaipublic.blob.core.windows.net/lm-human-preferences/datasets/book_passages/{mode}.jsonl', comm=comm))
-    # ]
+# OpenAI's books dataset link is broken. use datasets hosted by hugging face instead.
+dataset_name = 'bookcorpus'  # bookcorpus from hugging face. 74M rows.
+enc = tiktoken.get_encoding('gpt2')  # consistently with encodings.Main
 
-    # Instead, use bookcorpus dataset from hugging face. 74M rows
-    dataset = load_dataset("bookcorpus", split=mode, streaming=True)  # returns an IterableDataset
-    if shuffle:
-        dataset = dataset.shuffle(seed, buffer_size=100000)
+def get_batch(data, batch_size):
+    batched = []
+    read_length = 100
+    sep = enc.decode([enc.eot_token])
+    ix = np.random.randint(len(data) - read_length * 5, size=batch_size)
+    for i in ix:
+        data_i = data[i: i + read_length]
+        xs = enc.decode(data_i).split(sep)
+        while len(xs) < 3:
+            data_i = numpy.concatenate((data_i, data[i + data_i.shape[0]: i + data_i.shape[0] + read_length]))
+            xs = enc.decode(data_i).split(sep)
+        batched.append(xs[1])  # the second is a complete data example
+    return batched
 
-    for x in dataset:
-        yield x['text']
+def prepare_books():
+    """
+    Load books dataset from hugging face.
+    Append eot_token to every data point, concatenate into a 1-D huge numpy array,
+    and save as a train.bin file under the datasets directory.
+    """
+    num_proc = 4  # num_cpu // 2
+    dataset = load_dataset(dataset_name, num_proc=num_proc)
+    split_dataset = dataset["train"].train_test_split(test_size=0.0005, seed=2357, shuffle=True)
+
+    def process(example):
+        ids = enc.encode_ordinary(example['text'])  # encode_ordinary ignores any special tokens
+        ids.append(enc.eot_token)  # add the end of text token, e.g. 50256 for gpt2 bpe
+        out = {'ids': ids, 'len': len(ids)}
+        return out
+
+    # tokenize the dataset
+    tokenized = split_dataset.map(
+        process,
+        remove_columns=['text'],
+        desc="tokenizing the splits",
+        num_proc=num_proc,
+    )
+
+    for split, dset in tokenized.items():
+        arr_len = np.sum(dset['len'], dtype=np.uint64)
+        filename = os.path.join(os.path.dirname(__file__), f'{dataset_name}_{split}.bin')
+        dtype = np.uint16  # (can do since enc.max_token_value == 50256 is < 2**16)
+        arr = np.memmap(filename, dtype=dtype, mode='w+', shape=(arr_len,))
+        total_batches = 1024
+
+        idx = 0
+        for batch_idx in tqdm(range(total_batches), desc=f'writing {filename}'):
+            # Batch together samples for faster write
+            batch = dset.shard(num_shards=total_batches, index=batch_idx, contiguous=True).with_format('numpy')
+            arr_batch = np.concatenate(batch['ids'])
+            # Write into mmap
+            arr[idx: idx + len(arr_batch)] = arr_batch
+            idx += len(arr_batch)
+        arr.flush()
+
+
+if __name__ == '__main__':
+    prepare_books()

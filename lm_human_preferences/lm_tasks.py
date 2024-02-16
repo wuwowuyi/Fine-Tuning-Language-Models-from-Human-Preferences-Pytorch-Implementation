@@ -1,3 +1,6 @@
+import os
+
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
@@ -65,16 +68,11 @@ def make_query_sampler(*, hparams: TaskHParams, encoder, batch_size: int, mode='
     else:
         end_token = None
 
-    # NOTE: MPI not supported here. can add support of DDP later.
-    data = datasets.get_dataset(hparams.query_dataset).tf_dataset(
-        sequence_length=hparams.query_length, mode=mode, encoder=encoder,
+    data_sampler = datasets.get_dataset(hparams.query_dataset).tf_dataset(
+        sequence_length=hparams.query_length, batch_size=batch_size, mode=mode, encoder=encoder,
         start_token=start_token, end_token=end_token,
     )
-    loader = DataLoader(data.with_format("torch"), batch_size, drop_last=True,
-                        pin_memory=True, num_workers=0)  # TODO: num_workers
-    data_iter = iter(loader)
 
     def sampler():
-
-        return torch.as_tensor(next(data_iter), dtype=torch.int32, device=device)
+        return torch.as_tensor(data_sampler(), dtype=torch.int32, device=device)
     return sampler
