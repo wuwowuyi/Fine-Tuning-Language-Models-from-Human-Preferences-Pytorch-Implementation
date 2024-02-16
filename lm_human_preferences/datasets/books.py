@@ -67,6 +67,8 @@ def prepare_books():
             idx += len(arr_batch)
         arr.flush()
 
+        # the generated train.bin is 2.3 GB, and test.bin 1.1MB.
+
 
 if __name__ == '__main__':
     prepare_books()
