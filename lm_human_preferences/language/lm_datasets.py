@@ -1,6 +1,8 @@
 import os
 import random
+
 import numpy as np
+import torch
 
 from lm_human_preferences.datasets import books
 from lm_human_preferences.datasets.cnndm import cnndm_generator
@@ -46,32 +48,35 @@ class Dataset:
         data = np.memmap(os.path.join(os.path.dirname(__file__), "../datasets",
                                       f'{self.datasets_names[self.name]}_{mode}.bin'), dtype=np.uint16, mode='r')
         def _get_batch():
-            text = self.generator(data, batch_size)
+            batched = self.generator(data, batch_size)
+            tokenized = torch.empty((batch_size, sequence_length), dtype=torch.int32, pin_memory=True)
             # strip off tokens before start_token and after end_token.
             # and pad tokens if len(tokens) < sequence_length
-            tokens = encoder.encode(text)
-            if start_token is not None:
-                try:
-                    first_index = tokens.index(start_token)+1
-                    if first_index < len(tokens):
-                        tokens = tokens[first_index:]
-                except:
-                    pass
+            for i, text in enumerate(batched):
+                tokens = encoder.encode(text)
+                if start_token is not None:
+                    try:
+                        first_index = tokens.index(start_token)+1
+                        if first_index < len(tokens):
+                            tokens = tokens[first_index:]
+                    except:
+                        pass
 
-            tokens = tokens[:sequence_length]
+                tokens = tokens[:sequence_length]
 
-            if end_token is not None:
-                try:
-                    last_index = len(tokens)-tokens[::-1].index(end_token)
-                    tokens = tokens[:last_index]
-                except:
-                    pass
+                if end_token is not None:
+                    try:
+                        last_index = len(tokens)-tokens[::-1].index(end_token)
+                        tokens = tokens[:last_index]
+                    except:
+                        pass
 
-            if len(tokens) < sequence_length:
-                tokens = tokens + [padding_token] * (sequence_length - len(tokens))
+                if len(tokens) < sequence_length:
+                    tokens = tokens + [padding_token] * (sequence_length - len(tokens))
 
-            assert len(tokens) == sequence_length
-            return tokens
+                tokenized[i] = tokens
+
+            return tokenized
 
         return _get_batch
 
