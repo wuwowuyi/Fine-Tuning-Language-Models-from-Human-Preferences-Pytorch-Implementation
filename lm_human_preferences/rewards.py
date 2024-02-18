@@ -19,8 +19,8 @@ class RewardModel(nn.Module):
         self.padding_token = self.encoder.padding_token
 
         self.lm_model, self.lm_params = self.trained_model.init_model('reward')  # pre-trained language model
-        self.reward_gain = nn.Parameter(torch.ones(1, device=self.device))
-        self.reward_bias = nn.Parameter(torch.zeros(1, device=self.device))
+        self.reward_gain = nn.Parameter(torch.ones((), device=self.device))
+        self.reward_bias = nn.Parameter(torch.zeros((), device=self.device))
 
     def forward(self, tokens):
         lm_output = self.lm_model(tokens, padding_token=self.padding_token)
@@ -29,8 +29,8 @@ class RewardModel(nn.Module):
 
     @torch.no_grad()
     def reset_reward_scale(self):
-        self.reward_gain.copy_(torch.ones(1))
-        self.reward_bias.copy_(torch.zeros(1))
+        self.reward_gain.copy_(torch.ones(()))
+        self.reward_bias.copy_(torch.zeros(()))
 
     @torch.no_grad()
     def set_reward_norm(self, *, old_mean, old_std, new_mean, new_std):
@@ -40,8 +40,8 @@ class RewardModel(nn.Module):
             f'set_reward_norm expects gain = 1 and bias = 0, not {old_gain}, {old_bias}'
         gain = new_std / old_std
         bias = new_mean - gain * old_mean
-        self.reward_gain.copy_(torch.as_tensor(gain))
-        self.reward_bias.copy_(torch.as_tensor(bias))
+        self.reward_gain.copy_(gain)
+        self.reward_bias.copy_(bias)
 
     def get_rewards(self, queries, responses):
         tokens = torch.concat((queries, responses), dim=1)
