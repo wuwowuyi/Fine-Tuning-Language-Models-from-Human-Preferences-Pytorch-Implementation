@@ -75,7 +75,8 @@ class SampleBuffer:
         self._capacity = capacity  # max # data items in buffer
         self._total = 0  # total # data items added
         self._vars = {
-            n: torch.empty((capacity,) + s.shape, dtype=s.dtype)
+            n: torch.empty((capacity,) + s.shape, dtype=s.dtype, requires_grad=False,
+                           device='cpu', pin_memory=True)
             for n, s in schemas.items()
         }
 
