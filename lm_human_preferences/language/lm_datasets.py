@@ -49,7 +49,7 @@ class Dataset:
                                       f'{self.datasets_names[self.name]}_{mode}.bin'), dtype=np.uint16, mode='r')
         def _get_batch():
             batched = self.generator(data, batch_size)
-            tokenized = torch.empty((batch_size, sequence_length), dtype=torch.int32, pin_memory=True)
+            tokenized = np.empty((batch_size, sequence_length), dtype=np.int32)
             # strip off tokens before start_token and after end_token.
             # and pad tokens if len(tokens) < sequence_length
             for i, text in enumerate(batched):
