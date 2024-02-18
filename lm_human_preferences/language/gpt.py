@@ -202,7 +202,7 @@ class GPT(nn.Module):
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.n_ctx, f"Cannot forward sequence of length {t}, block size is only {self.config.n_ctx}"
-        pos = torch.arange(0, t, dtype=torch.long, device=device) # shape (t)
+        pos = torch.arange(t, dtype=torch.long, device=device)  # shape (t,)
 
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
@@ -216,7 +216,7 @@ class GPT(nn.Module):
         if mask is not None:
             # For padding tokens, use the output from the last non-padding token instead.
             # set indices of padding tokens in idx to -1. present_indices.shape == (b, t) == idx.shape
-            present_indices = torch.where(mask, torch.tile(torch.arange(t)[None], (b, 1)), -1)
+            present_indices = torch.where(mask, torch.tile(pos[None], (b, 1)), -1)
             use_indices = torch.cummax(present_indices, dim=1)[0]  # shape=(b, t)
             assert torch.all(use_indices.gt(-1))
             x = x[torch.arange(b)[:, None], use_indices]
@@ -226,7 +226,7 @@ class GPT(nn.Module):
         lm_logits = self.lm_head(x)  # shape=(b, t, n_vocab)
         lm_labels = torch.cat((idx[:, 1:], idx[:, :1]), dim=1)  # shape=(b, t). first token as label of the last
         lm_loss = F.cross_entropy(
-            lm_logits.view(-1, lm_logits.size(-1)), lm_labels.view(-1), reduction='none')  # shape=(b*t,)
+            lm_logits.view(-1, lm_logits.size(-1)), lm_labels.view(-1).long(), reduction='none')  # shape=(b*t,)
         relevant_loss = lm_loss.reshape(b, t)[:, :-1]  # shape=(b, t-1). remove last token's loss
         results['lm_all_losses'] = relevant_loss
         results['lm_logits'] = lm_logits

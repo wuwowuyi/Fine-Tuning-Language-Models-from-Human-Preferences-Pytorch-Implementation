@@ -75,7 +75,7 @@ class Policy(nn.Module):
             logp = -F.cross_entropy(logits, next_token, reduction='none')  # shape=(b,)
             log_probs.append(logp)
             # append sampled index to the running sequence and continue
-            context = torch.cat((context, next_token[None]), dim=1)
+            context = torch.cat((context, next_token[..., None]), dim=1)
         return {
             'responses': context,  # shape=(b, context.shape[1] + length)
             'logprobs': torch.stack(log_probs, dim=1),  # shape=(b, length)

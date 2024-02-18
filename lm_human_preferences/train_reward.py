@@ -103,7 +103,9 @@ class RewardModelTrainer:
             def set_reward_norms(mean, std, new_mean, new_std):
                 print(f'targets: {new_mean} +- {new_std}')
                 print(f'before normalize: {mean} +- {std}')
-                assert np.isfinite((mean, std, new_mean, new_std)).all()
+                mean, std = mean.cpu(), std.cpu()
+                new_mean, new_std = new_mean.cpu(), new_std.cpu()
+                assert np.isfinite((mean.numpy(), std.numpy(), new_mean.numpy(), new_std.numpy())).all()
                 self.reward_model.set_reward_norm(old_mean=mean, old_std=std, new_mean=new_mean, new_std=new_std)
             self.set_reward_norms = set_reward_norms
 
@@ -161,8 +163,8 @@ class RewardModelTrainer:
             indices = train_indices[start_index:end_index]
 
             minibatch = self.train_buffer.read(indices)
-            for k, v in minibatch:
-                k[v] = torch.as_tensor(v, dtype=torch.int32, device=self.hparams.run.device)
+            for k, v in minibatch.items():
+                minibatch[k] = torch.as_tensor(v, dtype=torch.int32, device=self.hparams.run.device)
 
             stats = self.label_type.loss(reward_model=self.reward_model.get_rewards, labels=minibatch)
             loss = stats['loss'] / self.hparams.gradient_accumulation_steps

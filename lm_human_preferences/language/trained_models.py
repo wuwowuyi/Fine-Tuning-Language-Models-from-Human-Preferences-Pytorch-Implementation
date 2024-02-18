@@ -83,6 +83,7 @@ class TrainedModel:
             else:
                 torch.nn.init.normal_(model.hp_head.weight, std=1 / np.sqrt(model_args.n_embd + 1))
         # todo: save mode_args here?
+        model.to(self.device)
         return model, model_args
 
 
