@@ -46,7 +46,7 @@ class PickBest(LabelType):
     def loss(self, reward_model, labels: torch.Tensor):
         logits = torch.stack([reward_model(labels['query'], labels[f'sample{i}'])
                          for i in range(self.num_responses)], dim=1)  # shape=(b, num_responses)
-        error = F.cross_entropy(logits, target=labels['best'])
+        error = F.cross_entropy(logits, target=labels['best'].long())
         return dict(loss=error, error=error)
 
     def question_schemas(self, *, query_length, response_length) -> dict[str, Schema]:
