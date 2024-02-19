@@ -76,10 +76,9 @@ class RewardModelTrainer:
                 # Should be the same on all ranks because the train_buf should be the same
                 scales = self.label_type.target_scales(self.train_buffer.data())
                 if scales is None:
-                    return torch.zeros([]), torch.ones([])
+                    return np.zeros([]), np.ones([])
                 else:
-                    var, mean = torch.var_mean(scales, dim=0, correction=0)
-                    return mean, torch.sqrt(var)
+                    return np.mean(scales, axis=0), np.std(scales, axis=0)
             self.target_mean_std = target_mean_std
 
             @torch.no_grad()
