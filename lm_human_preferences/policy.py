@@ -28,6 +28,9 @@ class Policy(nn.Module):
 
         self.lm_model, self.lm_params = self.trained_model.init_model('policy')  # pre-trained language model
 
+        # Adjust this number to avoid OutOfMemoryError.
+        self.micro_rollout_batch_size = 8
+
     def forward(self, tokens):
         lm_output = self.lm_model(tokens, padding_token=self.encoder.padding_token)
         # need to slice logits since we don't want to generate special tokens
@@ -53,33 +56,41 @@ class Policy(nn.Module):
         :param length: number of tokens to sample sequentially
         """
         beta = 1 / torch.max(torch.as_tensor([self.temperature, 1e-10], dtype=torch.float32, device=self.device))
-        log_probs = []  # each item.shape=(b,)
-        values = []  # each item.shape=(b,)
-        for _ in range(length):
-            # crop context if it's too long
-            context_cond = context if context.size(1) <= self.lm_params.n_ctx else context[:, -self.lm_params.n_ctx:]
-            result = self(context_cond)
-            logits = result['logits'][:, -1, :] * beta  # shape=(b, n_vocab)
-            values.append(result['values'][:, -1])  # use last token's value
-            # optionally crop the logits to only the top k options
-            if top_k != 0:
-                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                logits[logits < v[:, [-1]]] = -float('Inf')
-            if top_p != 1.0:
-                logits = utils.take_top_p_logits(logits, top_p)
 
-            # apply softmax to convert logits to (normalized) probabilities
-            dist = distributions.Categorical(logits=logits)
-            # sample from the distribution
-            next_token = dist.sample()  # shape=(b,)
-            logp = -F.cross_entropy(logits, next_token, reduction='none')  # shape=(b,)
-            log_probs.append(logp)
-            # append sampled index to the running sequence and continue
-            context = torch.cat((context, next_token[..., None]), dim=1)
+        assert context.shape[0] % self.micro_rollout_batch_size == 0
+        r = {'responses': [], 'logprobs': [], 'values': []}
+        for mc in torch.split(context, self.micro_rollout_batch_size):
+            log_probs = []  # each item.shape=(b,). where b= micro_rollout_batch_size
+            values = []  # each item.shape=(b,)
+            for _ in range(length):
+                # crop context if it's too long
+                context_cond = mc if mc.size(1) <= self.lm_params.n_ctx else mc[:, -self.lm_params.n_ctx:]
+                result = self(context_cond)
+                logits = result['logits'][:, -1, :] * beta  # shape=(b, n_vocab)
+                values.append(result['values'][:, -1])  # use last token's value
+                # optionally crop the logits to only the top k options
+                if top_k != 0:
+                    v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                    logits[logits < v[:, [-1]]] = -float('Inf')
+                if top_p != 1.0:
+                    logits = utils.take_top_p_logits(logits, top_p)
+
+                # apply softmax to convert logits to (normalized) probabilities
+                dist = distributions.Categorical(logits=logits)
+                # sample from the distribution
+                next_token = dist.sample()  # shape=(b,)
+                logp = -F.cross_entropy(logits, next_token, reduction='none')  # shape=(b,)
+                log_probs.append(logp)
+                # append sampled index to the running sequence and continue
+                mc = torch.cat((mc, next_token[..., None]), dim=1)
+            r['responses'].append(mc)  # shape=(b, context.shape[1] + length) where b=micro_rollout_batch_size
+            r['logprobs'].append(torch.stack(log_probs, dim=1))  # shape=(b, length)
+            r['values'].append(torch.stack(values, dim=1))  # shape=(b, length)
+
         return {
-            'responses': context,  # shape=(b, context.shape[1] + length)
-            'logprobs': torch.stack(log_probs, dim=1),  # shape=(b, length)
-            'values': torch.stack(values, dim=1)  # shape=(b, length)
+            'responses': torch.cat(r['responses']),
+            'logprobs': torch.cat(r['logprobs']),
+            'values': torch.cat(r['values'])
         }
 
     @torch.no_grad()
