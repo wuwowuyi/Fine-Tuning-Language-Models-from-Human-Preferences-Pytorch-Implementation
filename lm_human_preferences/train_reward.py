@@ -157,28 +157,20 @@ class RewardModelTrainer:
         optimizer = self.reward_model.configure_optimizers(self.hparams)
 
         train_indices = torch.randperm(self.hparams.labels.num_train)
-        for index in range(self.hparams.labels.num_train // self.hparams.batch_size):
-            start_index = index * self.hparams.batch_size
-            end_index = start_index + self.hparams.batch_size
+        # effective batch size to avoid OutOfMemory Error.
+        micro_batch_size = self.hparams.batch_size // self.hparams.gradient_accumulation_steps
+        for index in range(self.hparams.labels.num_train // micro_batch_size):
+            start_index = index * micro_batch_size
+            end_index = start_index + micro_batch_size
             indices = train_indices[start_index:end_index]
 
             minibatch = self.train_buffer.read(indices)
             for k, v in minibatch.items():
-                minibatch[k] = torch.as_tensor(v, dtype=torch.int32, device=self.hparams.run.device)
+                minibatch[k] = v.to(self.hparams.run.device)
 
             stats = self.label_type.loss(reward_model=self.reward_model.get_rewards, labels=minibatch)
             loss = stats['loss'] / self.hparams.gradient_accumulation_steps
             loss.backward()
-
-            if index % self.hparams.run.log_interval == 0:
-                if self.hparams.wandb_log:
-                    wandb.log({
-                        "iter": index,
-                        "train/loss": loss,
-                        #"val/loss": losses['val'],
-                        #"lr": lr,
-                    })
-                print(f"iter {index}: loss {loss:.4f}")
 
             if (index + 1) % self.hparams.gradient_accumulation_steps == 0:
                 # clip the gradient
@@ -193,7 +185,18 @@ class RewardModelTrainer:
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = lr
 
-            # todo: save checkpoint
+                if index % self.hparams.run.log_interval == 0:
+                    lossf = loss.item() * self.hparams.gradient_accumulation_steps
+                    if self.hparams.wandb_log:
+                        wandb.log({
+                            "iter": index,
+                            "train/loss": lossf,
+                            # "val/loss": losses['val'],
+                            # "lr": lr,
+                        })
+                    print(f"iter {index}: loss {lossf:.4f}")
+
+                # todo: save checkpoint
 
         if self.hparams.normalize_after:
             target_mean, target_std = np.zeros([]), np.ones([])

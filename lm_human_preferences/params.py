@@ -57,8 +57,8 @@ class TrainRewardParams(hyperparams.HParams):
     task: TaskHParams = field(default_factory=TaskHParams)
     labels: LabelHParams = field(default_factory=LabelHParams)
 
-    batch_size: int = 10
-    gradient_accumulation_steps: int = 4
+    batch_size: int = 40  # micro_batch_size = batch_size / gradient_accumulation_steps
+    gradient_accumulation_steps: int = 4  # adjust to avoid OutOfMemory Error
     lr: float = 5e-5
     weight_decay: float = 0.1
     betas = (0.9, 0.95)
