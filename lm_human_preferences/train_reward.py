@@ -99,12 +99,11 @@ class RewardModelTrainer:
                 self.reward_model.reset_reward_scale()
             self.reset_reward_scales = reset_reward_scales
 
-            def set_reward_norms(mean, std, new_mean, new_std):
+            def set_reward_norms(mean: torch.Tensor, std: torch.Tensor, new_mean: np.ndarray, new_std: np.ndarray):
                 print(f'targets: {new_mean} +- {new_std}')
                 print(f'before normalize: {mean} +- {std}')
-                mean, std = mean.cpu(), std.cpu()
-                new_mean, new_std = new_mean.cpu(), new_std.cpu()
-                assert np.isfinite((mean.numpy(), std.numpy(), new_mean.numpy(), new_std.numpy())).all()
+                mean, std = mean.item(), std.item()
+                assert np.isfinite((mean, std, new_mean, new_std)).all()
                 self.reward_model.set_reward_norm(old_mean=mean, old_std=std, new_mean=new_mean, new_std=new_std)
             self.set_reward_norms = set_reward_norms
 
@@ -184,16 +183,16 @@ class RewardModelTrainer:
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = lr
 
-                if index % self.hparams.run.log_interval == 0:
-                    lossf = loss.item() * self.hparams.gradient_accumulation_steps
-                    if self.hparams.wandb_log:
-                        wandb.log({
-                            "iter": index,
-                            "train/loss": lossf,
-                            # "val/loss": losses['val'],
-                            # "lr": lr,
-                        })
-                    print(f"iter {index}: loss {lossf:.4f}")
+                #if index % self.hparams.run.log_interval == 0:
+                lossf = loss.item() * self.hparams.gradient_accumulation_steps
+                if self.hparams.wandb_log:
+                    wandb.log({
+                        "iter": index,
+                        "train/loss": lossf,
+                        # "val/loss": losses['val'],
+                        # "lr": lr,
+                    })
+                print(f"iter {index}: loss {lossf:.4f}")
 
                 # todo: save checkpoint
 
