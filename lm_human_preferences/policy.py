@@ -29,7 +29,7 @@ class Policy(nn.Module):
         self.lm_model, self.lm_params = self.trained_model.init_model('policy')  # pre-trained language model
 
         # Adjust this number to avoid OutOfMemoryError.
-        self.micro_rollout_batch_size = 8
+        self.micro_rollout_batch_size = 64  # make sure gradients not needed when use
 
     def forward(self, tokens):
         lm_output = self.lm_model(tokens, padding_token=self.encoder.padding_token)

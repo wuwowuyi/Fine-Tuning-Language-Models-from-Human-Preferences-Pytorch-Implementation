@@ -22,9 +22,22 @@ class RewardModel(nn.Module):
         self.reward_gain = nn.Parameter(torch.ones((), device=self.device))
         self.reward_bias = nn.Parameter(torch.zeros((), device=self.device))
 
+        # Adjust this number to avoid OutOfMemoryError.
+        self.micro_batch_size = 64  # make sure gradients not needed when use
+
     def forward(self, tokens):
-        lm_output = self.lm_model(tokens, padding_token=self.padding_token)
-        reward = lm_output['hp'][:, -1]  # shape=(b,)
+        if 0 < self.micro_batch_size < tokens.shape[0] and tokens.shape[0] % self.micro_batch_size == 0:
+            # To avoid OutOfMemoryError. Make sure gradients are not needed in this case !
+            rewards = []
+            for t in torch.split(tokens, self.micro_batch_size):
+                lm_output = self.lm_model(t, padding_token=self.padding_token)
+                r = lm_output['hp'][:, -1]  # shape=(b,) where b=micro_batch_size
+                rewards.append(r)
+            reward = torch.cat(rewards)
+        else:
+            lm_output = self.lm_model(tokens, padding_token=self.padding_token)
+            reward = lm_output['hp'][:, -1]  # shape=(b,) where b=tokens.shape[0]
+
         return self.reward_gain * reward + self.reward_bias
 
     @torch.no_grad()
