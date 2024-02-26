@@ -5,6 +5,7 @@ import numpy as np
 import tensorflow as tf
 import torch
 
+from lm_human_preferences import params
 from lm_human_preferences.language.gpt import ModelParams, GPT
 
 
@@ -52,7 +53,7 @@ for name, array in tf_vars:
 
 # save state_dict to checkpoint
 ckpt = {'model': model.state_dict()}
-torch.save(ckpt, os.path.join(os.path.dirname(__file__), '124M.ckpt'))
+torch.save(ckpt, os.path.join(os.path.dirname(__file__), '124M_ckpt.pt'))  # name matches params.RunHParams.ckpt
 
 
 """
