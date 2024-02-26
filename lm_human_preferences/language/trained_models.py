@@ -74,12 +74,16 @@ class TrainedModel:
 
         model = gpt.GPT(model_args)
         model.load_state_dict(state_dict)
+
         # overwrite default init of the head layer for policy/reward
         if self.train_stage == 'init':
             if model_for == 'policy':
                 torch.nn.init.zeros_(model.hp_head.weight)  # TODO: to review. zero initial value?
             else:
                 torch.nn.init.normal_(model.hp_head.weight, std=1 / np.sqrt(model_args.n_embd + 1))
+        elif self.train_stage == 'policy' and model_for == 'policy':
+            torch.nn.init.zeros_(model.hp_head.weight)  # TODO: to review. zero initial value?
+
         model.to(self.device)
         return model, model_args
 
