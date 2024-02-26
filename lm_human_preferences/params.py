@@ -18,9 +18,10 @@ class RunHParams(hyperparams.HParams):
     seed: Optional[int] = None
     log_interval: int = 10
     save_interval: int = 50
-    save_dir: str = 'out'  # save_dir cannot be None. We always save and load from a local dir.
+    save_dir: str = 'download'  # save_dir cannot be None. We always save and load from a local dir.
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu'  # 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc.
-    ckpt: str = 'ckpt.pt'  # checkpoint
+    ckpt: str = '124M_ckpt.pt'  # checkpoint
+    train_stage: str = 'init'  # init or resume
 
 
 @dataclass
