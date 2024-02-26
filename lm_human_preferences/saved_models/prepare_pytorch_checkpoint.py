@@ -5,9 +5,7 @@ import numpy as np
 import tensorflow as tf
 import torch
 
-from lm_human_preferences import params
 from lm_human_preferences.language.gpt import ModelParams, GPT
-
 
 """ Prepare PyTorch model checkpoint from downloaded OpenAI's Tensorflow checkpoint
 from 

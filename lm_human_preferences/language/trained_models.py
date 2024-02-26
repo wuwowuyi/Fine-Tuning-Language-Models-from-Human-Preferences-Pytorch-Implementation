@@ -33,7 +33,8 @@ class TrainedModel:
                 print(f"Load checkpoint from {ckpt}")
                 return torch.load(ckpt, map_location=self.device)
 
-        if self.train_stage == 'init':  # init from downloaded pre-trained language model
+        if self.train_stage == 'init' or (self.train_stage == 'policy' and model_for == 'policy'):
+            # init from the downloaded pre-trained language model
             return _load_ckpt(self.savedir/self.ckpt)
         else:  # init from saved checkpoint
             return _load_ckpt(self.savedir/model_for/self.ckpt)
