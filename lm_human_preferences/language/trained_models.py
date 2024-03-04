@@ -14,6 +14,7 @@ GPT2_Model = {  # mapping to match hugging face's model names
 }
 
 
+# This class is used as a utility class to initialize reward and policy.
 class TrainedModel:
     def __init__(self, name, *, run_hparams: RunHParams):
         self.name = name  # for example, 124M
