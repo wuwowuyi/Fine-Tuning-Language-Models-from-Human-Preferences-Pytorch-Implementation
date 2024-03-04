@@ -61,6 +61,13 @@ def pearson_r(x: torch.Tensor, y: torch.Tensor):
     return cov / torch.sqrt(x_var * y_var)
 
 
+def whiten(values, shift_mean=True):
+    var, mean = torch.var_mean(values, dim=list(range(values.dim())), correction=0)
+    whitened = (values - mean) * torch.rsqrt(var + 1e-8)
+    if not shift_mean:
+        whitened += mean
+    return whitened
+
 class SampleBuffer:
     """A circular buffer for storing and sampling data.
 
