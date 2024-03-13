@@ -4,7 +4,7 @@ import os
 import torch
 from torch import nn
 
-from lm_human_preferences.language import trained_models
+from lm_human_preferences.params import TrainRewardParams
 
 
 # TODO: sort out device and gradient!
@@ -63,9 +63,9 @@ class RewardModel(nn.Module):
         tokens = torch.concat((queries, responses), dim=1)
         return self(tokens)
 
-    def configure_optimizers(self, hparams):
+    def configure_optimizers(self, hparams: TrainRewardParams):
         device_type = 'cuda' if 'cuda' in self.device else self.device
         return self.lm_model.configure_optimizers(
-            hparams.weight_decay, hparams.lr, hparams.betas, device_type,
+            hparams.weight_decay, hparams.betas, device_type,
             {'reward_gain': self.reward_gain, 'reward_bias': self.reward_bias}
-        )
+        )(hparams.lr)

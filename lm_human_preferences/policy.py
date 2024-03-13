@@ -112,3 +112,9 @@ class Policy(nn.Module):
             entropies=entropy,  # shape=(b, length)
             values=result['values'][:, context_length-1:-1],  # shape=(b, length)
         )
+
+    def configure_optimizers(self, hparams: TrainPolicyParams):
+        device_type = 'cuda' if 'cuda' in self.device else self.device
+        return self.lm_model.configure_optimizers(
+            hparams.ppo.weight_decay, hparams.ppo.betas, device_type
+        )
