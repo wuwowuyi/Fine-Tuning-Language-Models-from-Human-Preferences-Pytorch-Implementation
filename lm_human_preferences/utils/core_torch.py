@@ -1,3 +1,4 @@
+import collections
 from dataclasses import dataclass
 from typing import Any, Tuple, Optional
 
@@ -67,6 +68,20 @@ def whiten(values, shift_mean=True):
     if not shift_mean:
         whitened += mean
     return whitened
+
+
+def flatten_dict(nested, sep='.'):
+    def rec(nest, prefix, into):
+        for k, v in nest.items():
+            if sep in k:
+                raise ValueError(f"separator '{sep}' not allowed to be in key '{k}'")
+            if isinstance(v, collections.Mapping):
+                rec(v, prefix + k + sep, into)
+            else:
+                into[prefix + k] = v
+    flat = {}
+    rec(nested, '', flat)
+    return flat
 
 class SampleBuffer:
     """A circular buffer for storing and sampling data.
