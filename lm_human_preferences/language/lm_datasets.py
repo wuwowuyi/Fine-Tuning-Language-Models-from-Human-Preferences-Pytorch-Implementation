@@ -1,5 +1,6 @@
 import os
 import random
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -45,8 +46,9 @@ class Dataset:
         if padding_token is None:
             padding_token = encoder.padding_token
 
-        data = np.memmap(os.path.join(os.path.dirname(__file__), "../datasets",
-                                      f'{self.datasets_names[self.name]}_{mode}.bin'), dtype=np.uint16, mode='r')
+        data = np.memmap(Path(__file__) / "../datasets" / f'{self.datasets_names[self.name]}_{mode}.bin',
+                         dtype=np.uint16, mode='r')
+
         def _get_batch():
             batched = self.generator(data, batch_size)
             tokenized = np.empty((batch_size, sequence_length), dtype=np.int32)

@@ -3,19 +3,17 @@ import os
 import numpy
 import numpy as np
 import tiktoken
-import torch
 from datasets import load_dataset  # hugging face datasets library
 from tqdm import tqdm
 
-
 # OpenAI's books dataset link is broken. use datasets hosted by hugging face instead.
 dataset_name = 'bookcorpus'  # bookcorpus from hugging face. 74M rows.
-enc = tiktoken.get_encoding('gpt2')  # consistently with encodings.Main
+enc = tiktoken.get_encoding('gpt2')  # consistent with encodings.Main
 
 def get_batch(data, batch_size):
     batched = []
-    read_length = 100
-    sep = enc.decode([enc.eot_token])
+    read_length = 100  # long enough to contain at least one complete sentence
+    sep = enc.decode([enc.eot_token])  # enc.eot_token was used to separate sentences. see prepare_books().
     ix = np.random.randint(len(data) - read_length * 5, size=batch_size)
     for i in ix:
         data_i = data[i: i + read_length]
