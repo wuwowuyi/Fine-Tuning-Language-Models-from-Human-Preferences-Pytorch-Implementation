@@ -80,5 +80,7 @@ class RewardModel(nn.Module):
             'gain': self.reward_gain,
             'bias': self.reward_bias
         }
-        torch.save(ckpt, self.trained_model.get_ckpt_filename('reward'))
+        f = self.trained_model.get_ckpt_filename('reward')
+        torch.save(ckpt, f)
+        print(f'Reward model has been saved to {f}')
 

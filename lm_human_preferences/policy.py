@@ -125,4 +125,6 @@ class Policy(nn.Module):
         ckpt = {
             'model': self.lm_model.state_dict(),
         }
-        torch.save(ckpt, self.trained_model.get_ckpt_filename('policy'))
+        f = self.trained_model.get_ckpt_filename('policy')
+        torch.save(ckpt, f)
+        print(f'Policy model has been saved to {f}')
