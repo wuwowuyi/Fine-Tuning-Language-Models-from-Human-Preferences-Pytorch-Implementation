@@ -18,8 +18,10 @@ GPT2_Model = {  # mapping to match hugging face's model names
 class TrainedModel:
     def __init__(self, name, *, run_hparams: RunHParams):
         self.name = name  # for example, 124M
-        self.savedir: Path = Path(run_hparams.save_dir)  # savedir cannot be None. we don's save to gcs.
-        self.ckpt = run_hparams.ckpt  # checkpoint
+        self.savedir: Path = Path(run_hparams.save_dir)  # savedir cannot be None. we don't save to gcs.
+        self.lm_ckpt = run_hparams.ckpt  # pretrained language model checkpoint
+        self.output_ckpt = run_hparams.output_ckpt
+
         self.device = run_hparams.device
         self.train_stage = run_hparams.train_stage
 
@@ -28,17 +30,36 @@ class TrainedModel:
         else:
             self.encoding = encodings.Main
 
+    def get_ckpt_filename(self, model_for: str) -> Path:
+        """Return filename for model checkpoint. """
+        p = self.savedir / model_for
+        if not p.exists():
+            p.mkdir()
+        return p / self.output_ckpt
+
     def _checkpoint(self, model_for: str):
+        """
+        Load checkpoint for model.
+        All checkpoints are stored under `self.savedir`.
+
+        - If `train_stage` is "init", initialize both reward and policy from the pretrained language model
+        - If `train_stage` is "policy", init policy from the pretrained language model,
+            and reward from the checkpoint saved during training reward.
+        - Otherwise load both reward and policy from saved checkpoint.
+
+        """
         def _load_ckpt(ckpt: Path):
             if ckpt.is_file():
                 print(f"Load checkpoint from {ckpt}")
                 return torch.load(ckpt, map_location=self.device)
+            else:
+                raise ValueError(f"checkpoint does not exist: {ckpt}")
 
         if self.train_stage == 'init' or (self.train_stage == 'policy' and model_for == 'policy'):
             # init from the downloaded pre-trained language model
-            return _load_ckpt(self.savedir/self.ckpt)
+            return _load_ckpt(self.savedir/self.lm_ckpt)
         else:  # init from saved checkpoint
-            return _load_ckpt(self.savedir/model_for/self.ckpt)
+            return _load_ckpt(self.get_ckpt_filename(model_for))
 
     def _hparams(self, model_for: str):
         if self.name == 'test':
@@ -53,20 +74,19 @@ class TrainedModel:
     def init_model(self, model_for: str):
         """
         :param model_for: 'policy', 'reward', etc.
-        :return: a language model instance
         """
-        checkpoint = self._checkpoint(model_for)
+        checkpoint = self._checkpoint(model_for)  # NOTE: we always save checkpoint as a dict
         assert checkpoint is not None
 
         model_args: gpt.ModelParams = self._hparams(model_for)
         if 'model_args' in checkpoint:
-            checkpoint_model_args = checkpoint['model_args']  # dict
+            checkpoint_model_args = checkpoint.pop('model_args')  # dict
             # force these config attributes to be equal
             # the rest of the attributes (e.g. dropout) can stay as desired from command line
             for k in ['n_layer', 'n_head', 'n_embd', 'n_ctx', 'bias', 'n_vocab']:
                 setattr(model_args, k, checkpoint_model_args[k])
 
-        state_dict = checkpoint['model']
+        state_dict = checkpoint.pop('model')
         # fix the keys of the state dictionary :(
         unwanted_prefix = '_orig_mod.'
         for k, v in list(state_dict.items()):
@@ -80,13 +100,13 @@ class TrainedModel:
         if self.train_stage == 'init':
             if model_for == 'policy':
                 torch.nn.init.zeros_(model.hp_head.weight)  # TODO: to review. zero initial value?
-            else:
+            else:  # reward
                 torch.nn.init.normal_(model.hp_head.weight, std=1 / np.sqrt(model_args.n_embd + 1))
         elif self.train_stage == 'policy' and model_for == 'policy':
             torch.nn.init.zeros_(model.hp_head.weight)  # TODO: to review. zero initial value?
 
         model.to(self.device)
-        return model, model_args
+        return model, model_args, checkpoint
 
 
 def load_hparams(file):

@@ -26,7 +26,7 @@ class Policy(nn.Module):
         self.temperature = temperature  # used for sampling
 
         # model has two heads, the language model head (for policy action) and value head for state value V(s).
-        self.lm_model, self.lm_params = self.trained_model.init_model('policy')  # pre-trained language model
+        self.lm_model, self.lm_params, *_ = self.trained_model.init_model('policy')  # pre-trained language model
 
         # Adjust this number to avoid OutOfMemoryError.
         self.micro_rollout_batch_size = 64  # make sure gradients not needed when use
@@ -120,3 +120,9 @@ class Policy(nn.Module):
         return self.lm_model.configure_optimizers(
             hparams.ppo.weight_decay, hparams.ppo.betas, device_type
         )
+
+    def save(self):
+        ckpt = {
+            'model': self.lm_model.state_dict(),
+        }
+        torch.save(ckpt, self.trained_model.get_ckpt_filename('policy'))

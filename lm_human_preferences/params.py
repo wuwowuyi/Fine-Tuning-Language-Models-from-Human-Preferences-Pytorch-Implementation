@@ -20,7 +20,8 @@ class RunHParams(hyperparams.HParams):
     save_interval: int = 50
     save_dir: str = 'saved_models'  # save_dir cannot be None. We always save and load from a local dir.
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu'  # 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc.
-    ckpt: str = '124M_ckpt.pt'  # checkpoint
+    ckpt: str = '124M_ckpt.pt'  # language model checkpoint
+    output_ckpt: str = 'output_ckpt.pt'  # trained reward/policy checkpoint
 
     # init: init both policy and reward from the downloaded LM model.
     # policy: reward model is trained. init policy from the downloaded LM, reward from saved checkpoint

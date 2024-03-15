@@ -4,6 +4,7 @@ import os
 import torch
 from torch import nn
 
+from lm_human_preferences.language.trained_models import TrainedModel
 from lm_human_preferences.params import TrainRewardParams
 
 
@@ -12,7 +13,7 @@ from lm_human_preferences.params import TrainRewardParams
 class RewardModel(nn.Module):
     def __init__(
             self,
-            trained_model,
+            trained_model: TrainedModel,
             encoder
     ):
         super().__init__()
@@ -21,14 +22,17 @@ class RewardModel(nn.Module):
         self.encoder = encoder
         self.padding_token = self.encoder.padding_token
 
-        self.lm_model, self.lm_params = self.trained_model.init_model('reward')  # pre-trained language model
-        self.reward_gain = nn.Parameter(torch.ones((), device=self.device))
-        self.reward_bias = nn.Parameter(torch.zeros((), device=self.device))
+        self.lm_model, self.lm_params, ckpt = self.trained_model.init_model('reward')
+        self.reward_gain = ckpt.pop('gain') if 'gain' in ckpt else nn.Parameter(torch.ones((), device=self.device))
+        self.reward_bias = ckpt.pop('bias') if 'bias' in ckpt else nn.Parameter(torch.zeros((), device=self.device))
 
         # Adjust this number to avoid OutOfMemoryError.
         self.micro_batch_size = -1  # make sure gradients not needed when use. -1 means do not use.
 
     def forward(self, tokens):
+        """Only care the reward for the entire response, not per step.
+        Since the reward is trained on scores for the entire response.
+         """
         if 0 < self.micro_batch_size < tokens.shape[0] and tokens.shape[0] % self.micro_batch_size == 0:
             # To avoid OutOfMemoryError. Make sure gradients are not needed in this case !
             rewards = []
@@ -69,3 +73,12 @@ class RewardModel(nn.Module):
             hparams.weight_decay, hparams.betas, device_type,
             {'reward_gain': self.reward_gain, 'reward_bias': self.reward_bias}
         )(hparams.lr)
+
+    def save(self):
+        ckpt = {
+            'model': self.lm_model.state_dict(),
+            'gain': self.reward_gain,
+            'bias': self.reward_bias
+        }
+        torch.save(ckpt, self.trained_model.get_ckpt_filename('reward'))
+
