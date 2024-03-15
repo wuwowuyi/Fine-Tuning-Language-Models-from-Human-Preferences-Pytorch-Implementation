@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 import torch
@@ -18,7 +19,12 @@ class RunHParams(hyperparams.HParams):
     seed: Optional[int] = None
     log_interval: int = 10
     save_interval: int = 50
-    save_dir: str = 'saved_models'  # save_dir cannot be None. We always save and load from a local dir.
+
+    # We always save and load from a local dir.
+    # save_dir is for a particular job
+    # The checkpoint of language model/reward/policy for initialization is under save_dir.parent
+    save_dir: Path = None
+
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu'  # 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc.
     ckpt: str = '124M_ckpt.pt'  # language model checkpoint
     output_ckpt: str = 'output_ckpt.pt'  # trained reward/policy checkpoint
@@ -27,6 +33,10 @@ class RunHParams(hyperparams.HParams):
     # policy: reward model is trained. init policy from the downloaded LM, reward from saved checkpoint
     # resume: init both policy and reward from saved checkpoints
     train_stage: str = 'init'
+
+    # wandb logging
+    wandb_log: bool = False
+    wandb_project: str = 'lm_human_preference'
 
 
 @dataclass
@@ -79,10 +89,6 @@ class TrainRewardParams(hyperparams.HParams):
     # Whether, after training, to normalize the rewards on the ref policy to mean 0, var 1
     # (so the KL coefficient always has the same meaning).
     normalize_after: bool = False
-
-    # wandb configs
-    wandb_project: str = 'lm_human_preferences'
-    wandb_log: bool = False
 
     def validate(self, *, prefix=''):
         super().validate(prefix=prefix)

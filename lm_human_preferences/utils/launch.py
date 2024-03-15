@@ -1,5 +1,6 @@
 import os
 import time
+from pathlib import Path
 
 import fire
 import wandb
@@ -25,8 +26,7 @@ import wandb
 #             for f in futures:
 #                 f.result()
 
-def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=False, mode='local', save_dir=None):
-    jobs = []
+def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=False):
     for trial in trials:  # each trial is a group of hparams
         descriptors = []
         kwargs = {}
@@ -47,11 +47,10 @@ def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=Fa
         if dry_run:
             print(f"{job_name}: {kwargs}")
         else:
-            if hparams.wandb_log:
-                wandb_run_name = f'{name}-' + str(time.time())  # 'run' + str(time.time())
-                wandb.init(project=hparams.wandb_project, name=wandb_run_name, config=hparams)
-            if save_dir:
-                hparams.run.save_dir = os.path.join(save_dir, job_name)
+            if hparams.run.wandb_log:
+                wandb_run_name = f'{job_name}-' + str(time.time())
+                wandb.init(project=hparams.run.wandb_project, name=wandb_run_name, config=hparams.to_nested_dict())
+            hparams.run.save_dir = Path(__file__) / '../saved_models' / job_name
             fn(hparams)
 
 

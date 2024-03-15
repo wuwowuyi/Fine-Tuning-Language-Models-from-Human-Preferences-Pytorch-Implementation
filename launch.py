@@ -2,8 +2,7 @@
 
 from lm_human_preferences.utils import launch
 from lm_human_preferences.utils.combos import bind, combos, each, label, options_shortdesc, bind_nested
-#from lm_human_preferences import train_policy
-from lm_human_preferences import train_reward, params
+from lm_human_preferences import train_reward, params, train_policy
 
 books_task = combos(
     bind('query_length', 64),
@@ -189,19 +188,19 @@ def get_experiments():
     return locals()
 
 
-def launch_train_policy(exp, name, dry_run=False, mpi=8, mode='local', save_dir='/tmp/save/train_policy', **extra_hparams):
+def launch_train_policy(exp, name, dry_run=False, **extra_hparams):
     experiment_dict = get_experiments()
     try:
         trials = experiment_dict[exp]
     except KeyError:
         raise ValueError(f"Couldn't find experiment '{exp}'")
 
-    # launch.launch_trials(
-    #     name, fn=train_policy.train, trials=trials, mpi=mpi, mode=mode, save_dir=save_dir,
-    #     hparam_class=train_policy.HParams, extra_hparams=extra_hparams, dry_run=dry_run)
+    launch.launch_trials(
+        name, fn=train_policy.train, trials=trials,
+        hparam_class=params.TrainPolicyParams, extra_hparams=extra_hparams, dry_run=dry_run)
 
 
-def launch_train_reward(exp, name, dry_run=False, mode='local', save_dir='/tmp/save/train_reward', **extra_hparams):
+def launch_train_reward(exp, name, dry_run=False, **extra_hparams):
     experiment_dict = get_train_reward_experiments()
     try:
         trials = experiment_dict[exp]
@@ -209,7 +208,7 @@ def launch_train_reward(exp, name, dry_run=False, mode='local', save_dir='/tmp/s
         raise ValueError(f"Couldn't find experiment '{exp}'")
 
     launch.launch_trials(
-        name, fn=train_reward.train, trials=trials, mode=mode, save_dir=save_dir,
+        name, fn=train_reward.train, trials=trials,
         hparam_class=params.TrainRewardParams, extra_hparams=extra_hparams, dry_run=dry_run)
 
 

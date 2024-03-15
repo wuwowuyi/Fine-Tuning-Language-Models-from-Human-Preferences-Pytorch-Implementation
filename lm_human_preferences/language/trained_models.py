@@ -18,7 +18,7 @@ GPT2_Model = {  # mapping to match hugging face's model names
 class TrainedModel:
     def __init__(self, name, *, run_hparams: RunHParams):
         self.name = name  # for example, 124M
-        self.savedir: Path = Path(run_hparams.save_dir)  # savedir cannot be None. we don't save to gcs.
+        self.savedir: Path = run_hparams.save_dir  # save dir for a particular run job.
         self.lm_ckpt = run_hparams.ckpt  # pretrained language model checkpoint
         self.output_ckpt = run_hparams.output_ckpt
 
@@ -30,9 +30,9 @@ class TrainedModel:
         else:
             self.encoding = encodings.Main
 
-    def get_ckpt_filename(self, model_for: str) -> Path:
+    def get_ckpt_filename(self, model_for: str, use_parent=False) -> Path:
         """Return filename for model checkpoint. """
-        p = self.savedir / model_for
+        p = self.savedir.parent / model_for if use_parent else self.savedir / model_for
         if not p.exists():
             p.mkdir()
         return p / self.output_ckpt
@@ -57,9 +57,9 @@ class TrainedModel:
 
         if self.train_stage == 'init' or (self.train_stage == 'policy' and model_for == 'policy'):
             # init from the downloaded pre-trained language model
-            return _load_ckpt(self.savedir/self.lm_ckpt)
+            return _load_ckpt(self.savedir.parent / self.lm_ckpt)
         else:  # init from saved checkpoint
-            return _load_ckpt(self.get_ckpt_filename(model_for))
+            return _load_ckpt(self.get_ckpt_filename(model_for, True))
 
     def _hparams(self, model_for: str):
         if self.name == 'test':
