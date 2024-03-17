@@ -106,6 +106,8 @@ class TrainedModel:
             torch.nn.init.zeros_(model.hp_head.weight)  # TODO: to review. zero initial value?
 
         model.to(self.device)
+        print("compiling the model... (takes a ~minute)")
+        model = torch.compile(model)  # # use PyTorch 2.0 to compile the model to be faster
         return model, model_args, checkpoint
 
 
