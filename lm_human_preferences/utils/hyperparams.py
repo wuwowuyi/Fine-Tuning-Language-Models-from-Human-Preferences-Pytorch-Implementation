@@ -140,6 +140,7 @@ def _is_union_type(ty):
 
 
 def dump(hparams, *, name='hparams', out=sys.stdout):
+    """Dump `hparams` as string to `out`"""
     out.write('%s:\n' % name)
     def dump_nested(hp, indent):
         for f in sorted(fields(hp), key=lambda f: f.name):

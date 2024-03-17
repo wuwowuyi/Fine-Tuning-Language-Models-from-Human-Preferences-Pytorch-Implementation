@@ -7,7 +7,6 @@ import torch
 import wandb
 
 from lm_human_preferences import label_types, lm_tasks, rewards
-from lm_human_preferences.label_types import LabelType
 from lm_human_preferences.language import trained_models
 from lm_human_preferences.params import TrainRewardParams
 from lm_human_preferences.policy import Policy
@@ -15,9 +14,7 @@ from lm_human_preferences.utils import azure, hyperparams
 from lm_human_preferences.utils import core_torch as utils
 
 
-def download_labels(source: str, label_type: LabelType,
-                    question_schemas: dict[str, utils.Schema], total_labels: int):
-    schemas = {**question_schemas, **label_type.label_schemas()}
+def download_labels(source: str, schemas: dict[str, utils.Schema], total_labels: int):
 
     """
     if self.is_root:
@@ -49,7 +46,8 @@ def download_labels(source: str, label_type: LabelType,
     # results is a list of items in schemas' format. eg,
     # [{'query':..., 'sample0':..., 'sample1':..., 'sample2':,, 'sample3':.., 'best':..},...]
     results = results[:total_labels]
-    return {k: torch.as_tensor([a[k] for a in results]) for k in schemas.keys()}
+    return {k: torch.as_tensor([a[k] for a in results], dtype=schema.dtype, device='cpu')
+            for k, schema in schemas.items()}
 
 
 class RewardModelTrainer:
@@ -59,15 +57,15 @@ class RewardModelTrainer:
         self.hparams = hparams
 
         self.label_type = label_types.get(hparams.labels.type)  # e.g., best_of_4
-        self.question_schemas = self.label_type.question_schemas(
+        question_schemas = self.label_type.question_schemas(
             query_length=hparams.task.query_length,
             response_length=hparams.task.response_length,
         )
-        data_schemas = {
-            **self.question_schemas,
+        self.data_schemas = {
+            **question_schemas,
             **self.label_type.label_schemas(),
         }
-        self.train_buffer = utils.SampleBuffer(capacity=hparams.labels.num_train, schemas=data_schemas)
+        self.train_buffer = utils.SampleBuffer(capacity=hparams.labels.num_train, schemas=self.data_schemas)
 
         if self.hparams.normalize_before or self.hparams.normalize_after:
 
@@ -83,6 +81,7 @@ class RewardModelTrainer:
 
             @torch.no_grad()
             def stats(query_responses):
+                """return mean and std of rewards of query_responses. """
                 rewards = torch.cat([self.reward_model.get_rewards(qs, rs) for qs, rs in query_responses], dim=0)
                 assert len(rewards.shape) == 1, f'{rewards.shape}'
                 means, sqr_means = rewards.mean(), rewards.square().mean()
@@ -125,13 +124,15 @@ class RewardModelTrainer:
         self.add_to_buffer = add_to_buffer
 
     def normalize(self, sample_fn, target_means, target_stds):
+        """ Use target mean and std computed from human labels to set gain and bias of the reward model.
+        """
         if not self.hparams.normalize_samples:
             return
 
         self.reset_reward_scales()
         query_responses = sample_fn(self.hparams.normalize_samples)
         means, stds = self.stats(query_responses)
-        self.set_reward_norms(means, stds, target_means, target_stds)
+        self.set_reward_norms(means, stds, target_means, target_stds)  # target mean and std are from human labels
 
         if self.hparams.debug_normalize:
             query_responses = sample_fn(self.hparams.debug_normalize)
@@ -139,13 +140,14 @@ class RewardModelTrainer:
             self.log_stats_after_normalize(stats)
 
     def train(self):
+
+        # TODO: try float16. torch.cuda.amp
+
         labels = download_labels(
             self.hparams.labels.source,
-            label_type=self.label_type,
-            question_schemas=self.question_schemas,
+            schemas=self.data_schemas,
             total_labels=self.hparams.labels.num_train
         )
-
         self.add_to_buffer(labels)
 
         if self.hparams.normalize_before:
@@ -153,11 +155,14 @@ class RewardModelTrainer:
             self.normalize(self.sample_policy_responses, target_mean, target_std)
 
         optimizer = self.reward_model.configure_optimizers(self.hparams)
+        lr = self.hparams.lr  # for logging
+        optimizer.zero_grad(set_to_none=True)  # just in case
 
         train_indices = torch.randperm(self.hparams.labels.num_train)
         # effective batch size to avoid OutOfMemory Error.
         micro_batch_size = self.hparams.batch_size // self.hparams.gradient_accumulation_steps
-        for index in range(self.hparams.labels.num_train // micro_batch_size):
+        step_loss = 0  # for logging
+        for index in range(utils.ceil_div(self.hparams.labels.num_train, micro_batch_size)):
             start_index = index * micro_batch_size
             end_index = start_index + micro_batch_size
             indices = train_indices[start_index:end_index]
@@ -169,32 +174,30 @@ class RewardModelTrainer:
             stats = self.label_type.loss(reward_model=self.reward_model.get_rewards, labels=minibatch)
             loss = stats['loss'] / self.hparams.gradient_accumulation_steps
             loss.backward()
+            step_loss += loss.item()
 
             if (index + 1) % self.hparams.gradient_accumulation_steps == 0:
                 # clip the gradient
-                if self.hparams.grad_clip != 0.0:
-                    torch.nn.utils.clip_grad_norm_(self.reward_model.parameters(), self.hparams.grad_clip)
+                # if self.hparams.grad_clip != 0.0:
+                #     torch.nn.utils.clip_grad_norm_(self.reward_model.parameters(), self.hparams.grad_clip)
                 optimizer.step()
-                # flush the gradients as soon as we can, no need for this memory anymore
-                optimizer.zero_grad(set_to_none=True)
+                optimizer.zero_grad()
+
+                # if index % self.hparams.run.log_interval == 0:
+                step = (index + 1) // self.hparams.gradient_accumulation_steps
+                if self.hparams.run.wandb_log:
+                    wandb.log({
+                        "iter": step,
+                        "train/loss": step_loss,
+                        "lr": lr,
+                    })
+                print(f"iter {step}: loss {step_loss:.4f}")
+                step_loss = 0  # reset
 
                 # schedule learning rate
                 lr = (1 - start_index / self.hparams.labels.num_train) * self.hparams.lr
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = lr
-
-                #if index % self.hparams.run.log_interval == 0:
-                lossf = loss.item() * self.hparams.gradient_accumulation_steps
-                if self.hparams.wandb_log:
-                    wandb.log({
-                        "iter": index,
-                        "train/loss": lossf,
-                        # "val/loss": losses['val'],
-                        # "lr": lr,
-                    })
-                print(f"iter {index}: loss {lossf:.4f}")
-
-                # todo: save checkpoint
 
         if self.hparams.normalize_after:
             target_mean, target_std = np.zeros([]), np.ones([])
@@ -202,6 +205,11 @@ class RewardModelTrainer:
 
 
 def train(hparams: TrainRewardParams):
+
+    seed = 1337 + hparams.run.seed
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
     hyperparams.dump(hparams)  # output hparams to out (default to stdout)
 
     m = trained_models.TrainedModel(hparams.task.policy.initial_model, run_hparams=hparams.run)
@@ -212,8 +220,10 @@ def train(hparams: TrainRewardParams):
         m, encoder,
         embed_queries=lm_tasks.query_formatter(hparams.task, encoder),
         temperature=hparams.task.policy.temperature)
+    ref_policy.eval()  # no dropout and gradients
 
     reward_model = rewards.RewardModel(m, encoder)
+    reward_model.train()
 
     query_sampler = lm_tasks.make_query_sampler(
         hparams=hparams.task, encoder=encoder, batch_size=hparams.rollout_batch_size, device=hparams.run.device
@@ -243,3 +253,5 @@ def train(hparams: TrainRewardParams):
     #     json.dump(reward_model.trained_model.encoding.name, f, indent=2)
 
     reward_trainer.train()
+
+    reward_model.save()
