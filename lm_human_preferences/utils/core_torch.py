@@ -142,7 +142,8 @@ class SampleBuffer:
         return {k: v[indices] for k, v in self._vars.items()}
 
     def data(self):
-        return {k: v[:self.size()] for k, v in self._vars.items()}
+        size = self.size()
+        return {k: v[:size] for k, v in self._vars.items()}
 
     def sample(self, n, seed=None):
         """Sample n entries with replacement."""
