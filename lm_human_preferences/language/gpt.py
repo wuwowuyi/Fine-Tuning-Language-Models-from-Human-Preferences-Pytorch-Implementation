@@ -311,7 +311,7 @@ class GPT(nn.Module):
 
         return model
 
-    def configure_optimizers(self, weight_decay, betas, device_type: str, extra_params: dict = None):
+    def configure_optimizers(self, learning_rate, device_type: str, weight_decay=None, extra_params: dict = None):
         def prepare_arguments():
             # start with all of the candidate parameters
             param_dict = {pn: p for pn, p in self.named_parameters()}
@@ -325,7 +325,7 @@ class GPT(nn.Module):
             decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
             nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
             optim_groups = [
-                {'params': decay_params, 'weight_decay': weight_decay},
+                {'params': decay_params, 'weight_decay': weight_decay if weight_decay else 0.0},
                 {'params': nodecay_params, 'weight_decay': 0.0}
             ]
             num_decay_params = sum(p.numel() for p in decay_params)
@@ -340,7 +340,7 @@ class GPT(nn.Module):
             return optim_groups, extra_args
 
         optim_groups, extra_args = prepare_arguments()
-        optimizer = partial(torch.optim.AdamW, optim_groups, betas=betas, eps=1e-5, **extra_args)
+        optimizer = torch.optim.AdamW(optim_groups, learning_rate, eps=1e-5, **extra_args)
         return optimizer
 
     def estimate_mfu(self, fwdbwd_per_iter, dt):

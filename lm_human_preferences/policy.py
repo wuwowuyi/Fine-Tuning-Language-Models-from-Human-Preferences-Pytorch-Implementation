@@ -29,7 +29,7 @@ class Policy(nn.Module):
         self.lm_model, self.lm_params, *_ = self.trained_model.init_model('policy')  # pre-trained language model
 
         # Adjust this number to avoid OutOfMemoryError.
-        self.micro_rollout_batch_size = 64  # make sure gradients not needed when use
+        self.micro_rollout_batch_size = -1  # make sure gradients not needed when use
 
     def forward(self, tokens):
         lm_output = self.lm_model(tokens, padding_token=self.encoder.padding_token)
@@ -117,9 +117,7 @@ class Policy(nn.Module):
 
     def configure_optimizers(self, hparams: TrainPolicyParams):
         device_type = 'cuda' if 'cuda' in self.device else self.device
-        return self.lm_model.configure_optimizers(
-            hparams.ppo.weight_decay, hparams.ppo.betas, device_type
-        )
+        return self.lm_model.configure_optimizers(hparams.ppo.lr, device_type)
 
     def save(self):
         ckpt = {

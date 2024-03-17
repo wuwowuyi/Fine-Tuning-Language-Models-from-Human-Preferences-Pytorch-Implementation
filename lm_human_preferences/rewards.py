@@ -8,8 +8,6 @@ from lm_human_preferences.language.trained_models import TrainedModel
 from lm_human_preferences.params import TrainRewardParams
 
 
-# TODO: sort out device and gradient!
-
 class RewardModel(nn.Module):
     def __init__(
             self,
@@ -70,9 +68,8 @@ class RewardModel(nn.Module):
     def configure_optimizers(self, hparams: TrainRewardParams):
         device_type = 'cuda' if 'cuda' in self.device else self.device
         return self.lm_model.configure_optimizers(
-            hparams.weight_decay, hparams.betas, device_type,
-            {'reward_gain': self.reward_gain, 'reward_bias': self.reward_bias}
-        )(hparams.lr)
+            hparams.lr, device_type, extra_params={'reward_gain': self.reward_gain, 'reward_bias': self.reward_bias}
+        )
 
     def save(self):
         ckpt = {

@@ -41,7 +41,7 @@ class RunHParams(hyperparams.HParams):
 
 @dataclass
 class PolicyHParams(hyperparams.HParams):
-    temperature: float = 1.0
+    temperature: float = 1.0  # lower this number to improve sample quality.
     initial_model: str = None
 
 
@@ -74,10 +74,8 @@ class TrainRewardParams(hyperparams.HParams):
     labels: LabelHParams = field(default_factory=LabelHParams)
 
     batch_size: int = 40  # micro_batch_size = batch_size / gradient_accumulation_steps
-    gradient_accumulation_steps: int = 2  # adjust to avoid OutOfMemory Error
+    gradient_accumulation_steps: int = 1  # increase to avoid OutOfMemory Error
     lr: float = 5e-5
-    weight_decay: float = 0.1
-    betas = (0.9, 0.95)
     grad_clip = 1.0
 
     rollout_batch_size: int = 64
@@ -120,8 +118,9 @@ class RewardHParams(hyperparams.HParams):
 class PpoHParams(hyperparams.HParams):
     total_episodes: int = 2000000
     batch_size: int = 64
-    nminibatches: int = 1
-    noptepochs: int = 4
+    nminibatches: int = 8  # increase to 8 since we train on a single GPU
+    noptepochs: int = 4  # each batch is trained this number of times
+
     lr: float = 5e-6
     vf_coef: float = .1
     cliprange: float = .2
