@@ -108,6 +108,7 @@ class RewardModelTrainer:
 
         if self.hparams.normalize_before or self.hparams.normalize_after:
 
+            @torch.no_grad()
             def sample_policy_batch():
                 queries = query_sampler()
                 responses = policy.respond(
@@ -220,7 +221,7 @@ def train(hparams: TrainRewardParams):
         m, encoder,
         embed_queries=lm_tasks.query_formatter(hparams.task, encoder),
         temperature=hparams.task.policy.temperature)
-    ref_policy.eval()  # no dropout and gradients
+    ref_policy.eval()  # no dropout
 
     reward_model = rewards.RewardModel(m, encoder)
     reward_model.train()
