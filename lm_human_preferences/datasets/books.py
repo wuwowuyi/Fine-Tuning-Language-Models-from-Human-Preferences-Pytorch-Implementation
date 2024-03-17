@@ -1,6 +1,5 @@
 import os
 
-import numpy
 import numpy as np
 import tiktoken
 from datasets import load_dataset  # hugging face datasets library
@@ -14,12 +13,12 @@ def get_batch(data, batch_size):
     batched = []
     read_length = 100  # long enough to contain at least one complete sentence
     sep = enc.decode([enc.eot_token])  # enc.eot_token was used to separate sentences. see prepare_books().
-    ix = np.random.randint(len(data) - read_length * 5, size=batch_size)
+    ix = np.random.randint(len(data) - read_length * 5, size=batch_size)  # 5 is arbitrary
     for i in ix:
         data_i = data[i: i + read_length]
         xs = enc.decode(data_i).split(sep)
         while len(xs) < 3:
-            data_i = numpy.concatenate((data_i, data[i + data_i.shape[0]: i + data_i.shape[0] + read_length]))
+            data_i = np.concatenate((data_i, data[i + data_i.shape[0]: i + data_i.shape[0] + read_length]))
             xs = enc.decode(data_i).split(sep)
         batched.append(xs[1])  # the second is a complete data example
     return batched
