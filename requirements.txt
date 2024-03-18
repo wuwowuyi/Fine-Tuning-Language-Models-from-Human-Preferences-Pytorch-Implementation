@@ -1,7 +1,6 @@
 torch
 numpy
 transformers
-cloudpickle
 fire
 ftfy
 tqdm
@@ -11,4 +10,6 @@ requests
 datasets
 wandb
 tiktoken
+chardet
+tensorflow
 
