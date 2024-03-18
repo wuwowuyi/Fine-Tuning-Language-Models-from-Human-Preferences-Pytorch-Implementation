@@ -200,6 +200,7 @@ class RewardModelTrainer:
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = lr
 
+        # TODO review: If we normalize after training, why are reward gain and bias trainable parameters?
         if self.hparams.normalize_after:
             target_mean, target_std = np.zeros([]), np.ones([])
             self.normalize(self.sample_policy_responses, target_mean, target_std)
