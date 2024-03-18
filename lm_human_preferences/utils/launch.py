@@ -50,7 +50,8 @@ def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=Fa
             if hparams.run.wandb_log:
                 wandb_run_name = f'{job_name}-' + str(time.time())
                 wandb.init(project=hparams.run.wandb_project, name=wandb_run_name, config=hparams.to_nested_dict())
-            hparams.run.save_dir = Path(__file__) / '../saved_models' / job_name
+            hparams.run.save_dir = Path(__file__).parent.parent / 'saved_models' / job_name
+            Path.mkdir(hparams.run.save_dir, exist_ok=True)
             fn(hparams)
 
 

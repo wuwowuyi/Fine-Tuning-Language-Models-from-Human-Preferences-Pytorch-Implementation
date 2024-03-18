@@ -23,7 +23,7 @@ class RunHParams(hyperparams.HParams):
     # We always save and load from a local dir.
     # save_dir is for a particular job
     # The checkpoint of language model/reward/policy for initialization is under save_dir.parent
-    save_dir: Path = None
+    save_dir: Optional[Path] = None
 
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu'  # 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc.
     ckpt: str = '124M_ckpt.pt'  # language model checkpoint

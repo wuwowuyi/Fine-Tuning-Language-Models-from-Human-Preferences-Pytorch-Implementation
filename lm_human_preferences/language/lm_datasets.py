@@ -46,7 +46,7 @@ class Dataset:
         if padding_token is None:
             padding_token = encoder.padding_token
 
-        data = np.memmap(Path(__file__) / "../datasets" / f'{self.datasets_names[self.name]}_{mode}.bin',
+        data = np.memmap(Path(__file__).parent.parent / 'datasets' / f'{self.datasets_names[self.name]}_{mode}.bin',
                          dtype=np.uint16, mode='r')
 
         def _get_batch():
