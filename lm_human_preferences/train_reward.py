@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+from contextlib import nullcontext
 
 import numpy as np
 import torch
@@ -67,6 +68,10 @@ class RewardModelTrainer:
         }
         self.train_buffer = utils.SampleBuffer(capacity=hparams.labels.num_train, schemas=self.data_schemas)
 
+        self.ptdtype: torch.dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+        self.run_ctx = nullcontext() if self.hparams.run.device == 'cpu' \
+            else torch.amp.autocast(device_type=self.hparams.run.device, dtype=self.ptdtype)
+
         if self.hparams.normalize_before or self.hparams.normalize_after:
 
             def target_mean_std():
@@ -82,7 +87,9 @@ class RewardModelTrainer:
             @torch.no_grad()
             def stats(query_responses):
                 """return mean and std of rewards of query_responses. """
-                rewards = torch.cat([self.reward_model.get_rewards(qs, rs) for qs, rs in query_responses], dim=0)
+                with self.run_ctx:
+                    rewards = torch.cat([self.reward_model.get_rewards(qs, rs) for qs, rs in query_responses], dim=0)
+
                 assert len(rewards.shape) == 1, f'{rewards.shape}'
                 means, sqr_means = rewards.mean(), rewards.square().mean()
                 stds = torch.sqrt(sqr_means - means ** 2)  # Var(x) = E(x^2) - (E[x]^2)
@@ -111,8 +118,9 @@ class RewardModelTrainer:
             @torch.no_grad()
             def sample_policy_batch():
                 queries = query_sampler()
-                responses = policy.respond(
-                    queries=queries, length=hparams.task.response_length)['responses']
+                with self.run_ctx:
+                    responses = policy.respond(
+                        queries=queries, length=hparams.task.response_length)['responses']
                 return queries, responses
 
             def sample_policy_responses(n_samples):
@@ -141,15 +149,15 @@ class RewardModelTrainer:
             self.log_stats_after_normalize(stats)
 
     def train(self):
-
-        # TODO: try float16. torch.cuda.amp
-
         labels = download_labels(
             self.hparams.labels.source,
             schemas=self.data_schemas,
             total_labels=self.hparams.labels.num_train
         )
         self.add_to_buffer(labels)
+
+        # disable gradient scaling if using bfloat16
+        scaler = torch.cuda.amp.GradScaler(enabled=(self.ptdtype == torch.float16))
 
         if self.hparams.normalize_before:
             target_mean, target_std = self.target_mean_std()
@@ -172,16 +180,21 @@ class RewardModelTrainer:
             for k, v in minibatch.items():
                 minibatch[k] = v.to(self.hparams.run.device)
 
-            stats = self.label_type.loss(reward_model=self.reward_model.get_rewards, labels=minibatch)
-            loss = stats['loss'] / self.hparams.gradient_accumulation_steps
-            loss.backward()
+            with self.run_ctx:
+                stats = self.label_type.loss(reward_model=self.reward_model.get_rewards, labels=minibatch)
+                loss = stats['loss'] / self.hparams.gradient_accumulation_steps
+
             step_loss += loss.item()
+            scaler.scale(loss).backward()
 
             if (index + 1) % self.hparams.gradient_accumulation_steps == 0:
                 # clip the gradient
                 # if self.hparams.grad_clip != 0.0:
+                #     # need scaler.unscale_(optimizer) if using amp
                 #     torch.nn.utils.clip_grad_norm_(self.reward_model.parameters(), self.hparams.grad_clip)
-                optimizer.step()
+
+                scaler.step(optimizer)
+                scaler.update()
                 optimizer.zero_grad()
 
                 # if index % self.hparams.run.log_interval == 0:
