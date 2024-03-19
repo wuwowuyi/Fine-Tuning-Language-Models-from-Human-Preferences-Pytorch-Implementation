@@ -6,6 +6,14 @@ import torch
 
 from lm_human_preferences.utils import core_torch as utils, hyperparams
 
+device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+if 'cuda' in device_type:
+    # available on Nvidia GPUs since Ampere.
+    # TF32 tensor cores are designed to achieve better performance on matmul and convolutions on torch.float32 tensors
+    # see https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-and-later-devices
+    torch.backends.cuda.matmul.allow_tf32 = True  # faster with negligible loss of accuracy
+    torch.backends.cudnn.allow_tf32 = True
+
 
 @dataclass
 class LabelHParams(hyperparams.HParams):
@@ -25,7 +33,7 @@ class RunHParams(hyperparams.HParams):
     # The checkpoint of language model/reward/policy for initialization is under save_dir.parent
     save_dir: Optional[Path] = None
 
-    device: str = 'cuda' if torch.cuda.is_available() else 'cpu'  # 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc.
+    device: str = device_type  # 'cpu', 'cuda'
     ckpt: str = '124M_ckpt.pt'  # language model checkpoint
     output_ckpt: str = 'output_ckpt.pt'  # trained reward/policy checkpoint
 
@@ -35,7 +43,7 @@ class RunHParams(hyperparams.HParams):
     train_stage: str = 'init'
 
     # wandb logging
-    wandb_log: bool = False
+    wandb_log: bool = True
     wandb_project: str = 'lm_human_preference'
 
 
