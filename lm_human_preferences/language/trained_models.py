@@ -30,9 +30,9 @@ class TrainedModel:
         else:
             self.encoding = encodings.Main
 
-    def get_ckpt_filename(self, model_for: str, use_parent=False) -> Path:
+    def get_ckpt_filename(self, model_for: str) -> Path:
         """Return filename for model checkpoint. """
-        p = self.savedir.parent / model_for if use_parent else self.savedir / model_for
+        p = self.savedir / model_for
         if not p.exists():
             p.mkdir()
         return p / self.output_ckpt
@@ -59,7 +59,9 @@ class TrainedModel:
             # init from the downloaded pre-trained language model
             return _load_ckpt(self.savedir.parent / self.lm_ckpt)
         else:  # init from saved checkpoint
-            return _load_ckpt(self.get_ckpt_filename(model_for, True))
+            # after training reward or policy, copy best ckpt file to saved_models/,
+            # and rename it as policy_ckpt.pt or reward_ckpt.pt
+            return _load_ckpt(self.savedir.parent / f"{model_for}_ckpt.pt")
 
     def _hparams(self, model_for: str):
         if self.name == 'test':

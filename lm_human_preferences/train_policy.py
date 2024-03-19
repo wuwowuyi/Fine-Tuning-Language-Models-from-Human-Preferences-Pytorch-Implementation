@@ -4,6 +4,7 @@ import os
 import sys
 import time
 from contextlib import nullcontext
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -326,17 +327,10 @@ def train(hparams: TrainPolicyParams):
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    save_dir = hparams.run.save_dir
-
-    # train a reward model first if configured
-    if hparams.rewards.train_new_model:
-        assert hparams.task == hparams.rewards.train_new_model.task, f'{hparams.task} != {hparams.rewards.train_new_model.task}'
-        hparams.rewards.train_new_model.run.save_dir = save_dir
-        train_reward.train(hparams.rewards.train_new_model)
-        if 'pytest' in sys.modules:
-            hparams.rewards.trained_model = 'test'
-        elif save_dir:
-            hparams.rewards.trained_model = None if save_dir is None else os.path.join(save_dir, 'reward_model')
+    save_dir: Path = hparams.run.save_dir
+    assert save_dir is not None, "save_dir cannot be None!"
+    reward_cktp = save_dir.parent / "reward_ckpt.pt"
+    assert reward_cktp.is_file(), "reward checkpoint does not exist. Train reward first, copy best ckpt file to saved_models and name it reward_ckpt.pt"
 
     hparams.run.train_stage = 'policy'
     hyperparams.dump(hparams)
