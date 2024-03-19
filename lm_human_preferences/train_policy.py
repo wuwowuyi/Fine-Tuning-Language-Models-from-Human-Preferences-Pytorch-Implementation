@@ -3,6 +3,7 @@
 import os
 import sys
 import time
+from contextlib import nullcontext
 
 import numpy as np
 import torch
@@ -75,6 +76,12 @@ class PPOTrainer():
 
         optimizer = self.policy.configure_optimizers(hparams)
 
+        self.ptdtype: torch.dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+        self.run_ctx = nullcontext() if self.hparams.run.device == 'cpu' \
+            else torch.amp.autocast(device_type=self.hparams.run.device, dtype=self.ptdtype)
+        # disable gradient scaling if using bfloat16
+        scaler = torch.cuda.amp.GradScaler(enabled=(self.ptdtype == torch.float16))
+
         if hparams.rewards.adaptive_kl is None:
             self.kl_ctl = FixedKLController(hparams.rewards.kl_coef)
         else:
@@ -112,9 +119,12 @@ class PPOTrainer():
                     mb_data = {k: v[order[mb_start: mb_start+minibatch_size]]
                                for k, v in rollouts.items()}
 
-                    ppo_loss, stats = self.loss(mb_data)
-                    ppo_loss.backward()
-                    optimizer.step()
+                    with self.run_ctx:
+                        ppo_loss, stats = self.loss(mb_data)
+
+                    scaler.scale(ppo_loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
                     optimizer.zero_grad()
 
                     stat_list.append(stats)
@@ -169,21 +179,22 @@ class PPOTrainer():
         """ Like one step in environment in RL"""
         step_started_at = time.time()
 
+        queries = self.sample_queries()  # shape=(ppo.batch_size, task.query_length). input s
         with torch.no_grad():
-            queries = self.sample_queries()  # shape=(ppo.batch_size, task.query_length). input s
-            rollouts = self.policy.respond(queries, length=self.hparams.task.response_length)  # v(s), next_s, logP(a)
-            responses = rollouts['responses']
-            logprobs = rollouts['logprobs']
-            rollouts['queries'] = queries
+            with self.run_ctx:
+                rollouts = self.policy.respond(queries, length=self.hparams.task.response_length)  # v(s), next_s, logP(a)
+                responses = rollouts['responses']
+                logprobs = rollouts['logprobs']
+                rollouts['queries'] = queries
 
-            # compute rewards
-            scores, postprocessed_responses, score_stats = self.score_fn(queries, responses)
-            ref_logprobs = self.ref_policy.analyze_responses(queries, responses)['logprobs']
-            rewards, non_score_reward, kl_coef = self.compute_rewards(
-                scores=scores,
-                logprobs=logprobs,
-                ref_logprobs=ref_logprobs)
-            rollouts['rewards'] = rewards
+                # compute rewards
+                scores, postprocessed_responses, score_stats = self.score_fn(queries, responses)
+                ref_logprobs = self.ref_policy.analyze_responses(queries, responses)['logprobs']
+                rewards, non_score_reward, kl_coef = self.compute_rewards(
+                    scores=scores,
+                    logprobs=logprobs,
+                    ref_logprobs=ref_logprobs)
+                rollouts['rewards'] = rewards
 
         # each step t in rollout has state s_t, next state s_t+1, reward r_t, state value v(s_t), logP(a_t)
         train_stats = self.train(global_step, rollouts=rollouts)
