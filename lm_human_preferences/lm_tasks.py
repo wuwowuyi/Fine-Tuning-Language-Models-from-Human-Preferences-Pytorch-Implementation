@@ -16,7 +16,7 @@ def postprocess_fn_from_hparams(hparams: TaskHParams, padding_token: int):
     def get_mask(responses: torch.Tensor, truncate_token: int, truncate_after: int):
         # We want to truncate at the first occurrence of truncate_token that appears at or after
         # position truncate_after in the responses
-        mask = torch.eq(responses, truncate_token)
+        mask = torch.eq(responses, truncate_token).int()
         mask = torch.cat((torch.zeros_like(mask)[:, :truncate_after], mask[:, truncate_after:]), dim=1)
         return torch.cumsum(mask, dim=1) - mask
 
@@ -24,7 +24,7 @@ def postprocess_fn_from_hparams(hparams: TaskHParams, padding_token: int):
         def truncate(responses):
             # every pos in mask before and at the first truncate_token is zero, and after at least 1.
             mask = get_mask(responses, hparams.truncate_token, hparams.truncate_after)
-            return torch.where(mask, padding_token * torch.ones_like(responses), responses)
+            return torch.where(mask.bool(), padding_token * torch.ones_like(responses), responses)
         return truncate
     else:
         return lambda responses: responses

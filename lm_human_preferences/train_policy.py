@@ -89,7 +89,7 @@ class PPOTrainer():
             self.kl_ctl = AdaptiveKLController(hparams.rewards.kl_coef, hparams=hparams.rewards.adaptive_kl)
 
         def sample_queries():
-            return query_sampler()['tokens']
+            return query_sampler()
         self.sample_queries = sample_queries
 
         def compute_rewards(scores, logprobs, ref_logprobs):
@@ -98,7 +98,7 @@ class PPOTrainer():
             """
             kl = logprobs - ref_logprobs  # shape=(b, length)
             non_score_reward = -self.kl_ctl.value * kl  # penalize kl divergence
-            rewards = non_score_reward.copy()
+            rewards = non_score_reward.detach().clone()
             rewards[:, -1] += scores  # scores.shape=(b,), add to the last step of rewards
             return rewards, non_score_reward, self.kl_ctl.value
         self.compute_rewards = compute_rewards
@@ -191,11 +191,12 @@ class PPOTrainer():
                 # compute rewards
                 scores, postprocessed_responses, score_stats = self.score_fn(queries, responses)
                 ref_logprobs = self.ref_policy.analyze_responses(queries, responses)['logprobs']
-                rewards, non_score_reward, kl_coef = self.compute_rewards(
-                    scores=scores,
-                    logprobs=logprobs,
-                    ref_logprobs=ref_logprobs)
-                rollouts['rewards'] = rewards
+
+            rewards, non_score_reward, kl_coef = self.compute_rewards(
+                scores=scores,
+                logprobs=logprobs,
+                ref_logprobs=ref_logprobs)
+            rollouts['rewards'] = rewards
 
         # each step t in rollout has state s_t, next state s_t+1, reward r_t, state value v(s_t), logP(a_t)
         train_stats = self.train(global_step, rollouts=rollouts)
