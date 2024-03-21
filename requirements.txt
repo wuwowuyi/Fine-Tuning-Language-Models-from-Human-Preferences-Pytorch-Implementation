@@ -1,6 +1,5 @@
 torch
 numpy
-transformers
 fire
 ftfy
 tqdm
