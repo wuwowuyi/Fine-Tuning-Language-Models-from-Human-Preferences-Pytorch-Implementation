@@ -1,5 +1,6 @@
 import os
 import re
+from pathlib import Path
 
 import numpy as np
 import tensorflow as tf
@@ -15,6 +16,9 @@ https://openaipublic.blob.core.windows.net/gpt-2/models/124M/model.ckpt.meta
  
 ref: https://medium.com/huggingface/from-tensorflow-to-pytorch-265f40ef2a28
 """
+
+assert (Path(__file__).parent / 'model_124M' / 'model.ckpt.data-00000-of-00001').is_file(), \
+    "Please download model.ckpt.data-00000-of-00001 from the link given in comment!"
 
 tf_path = os.path.abspath('./model_124M/model.ckpt')  # Path to our TensorFlow checkpoint
 init_vars = tf.train.list_variables(tf_path)  # a list of (name, shape) tuples
