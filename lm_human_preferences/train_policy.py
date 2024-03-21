@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
 
-import os
-import sys
 import time
 from contextlib import nullcontext
 from pathlib import Path
+from typing import Union
 
 import numpy as np
 import torch
 import wandb
 
-from lm_human_preferences import lm_tasks, train_reward
+from lm_human_preferences import lm_tasks
 from lm_human_preferences.language import trained_models
 from lm_human_preferences.params import TrainPolicyParams, TaskHParams
 from lm_human_preferences.policy import Policy
 from lm_human_preferences.rewards import RewardModel
-from lm_human_preferences.utils import core_torch as utils
-from lm_human_preferences.utils import hyperparams
+from lm_human_preferences.utils import hyperparams, core_torch as utils
+
+
+def to_numpy(tensor: Union[torch.Tensor, dict]):
+    if isinstance(tensor, dict):
+        return {k: to_numpy(v) for k, v in tensor.items()}
+    else:
+        if tensor.dtype == torch.bfloat16:  # numpy does not support bfloat16
+            tensor = tensor.float()
+        return tensor.to("cpu").detach().numpy()
 
 
 def nupdates(hparams: TrainPolicyParams):
@@ -58,7 +65,7 @@ class FixedKLController:
 
 class AdaptiveKLController:
     def __init__(self, init_kl_coef, hparams):
-        self.value = init_kl_coef  # beta in paper
+        self.value: float = init_kl_coef  # beta in paper
         self.hparams = hparams
 
     def update(self, current, n_steps):
@@ -128,10 +135,10 @@ class PPOTrainer():
                     scaler.update()
                     optimizer.zero_grad()
 
-                    stat_list.append(stats)
+                    stat_list.append(to_numpy(stats))
 
             # Collect the stats. (They will be averaged later.)
-            return {k: [s[k] for s in stat_list] for k in stat_list[0].keys()}
+            return {k: np.stack([s[k] for s in stat_list]) for k in stat_list[0].keys()}
         self.train = train
 
         # NOTE: must line up with stats created in self.loss (TODO: better solution?)
@@ -139,18 +146,18 @@ class PPOTrainer():
             #ppo_summary_writer = utils.get_summary_writer(self.hparams.run.save_dir, subdir='ppo', comm=self.comm)
 
             kl = data['logprobs'] - data['ref_logprobs']
-            mean_kl = torch.mean(torch.sum(kl, dim=1))  # sum over response_length steps, and then mean across batch
-            mean_entropy = torch.mean(torch.sum(-data['logprobs'], dim=1))
-            mean_non_score_reward = torch.mean(torch.sum(data['non_score_reward'], dim=1))
+            mean_kl = np.mean(np.sum(kl, axis=1))  # sum over response_length steps, and then mean across batch
+            mean_entropy = np.mean(np.sum(-data['logprobs'], axis=1))
+            mean_non_score_reward = np.mean(np.sum(data['non_score_reward'], axis=1))
             stats = {
                 'objective/kl': mean_kl,
                 'objective/kl_coef': kl_coef,
                 'objective/entropy': mean_entropy,
             }
             for k, v in data['train_stats'].items():
-                stats[f'ppo/{k}'] = torch.mean(v, dim=0)
+                stats[f'ppo/{k}'] = np.mean(v, axis=0)
             for k, v in data['score_stats'].items():
-                mean = torch.mean(v, dim=0)
+                mean = np.mean(v, axis=0)
                 stats[f'objective/{k}'] = mean
                 stats[f'objective/{k}_total'] = mean + mean_non_score_reward
 
@@ -201,6 +208,10 @@ class PPOTrainer():
         # each step t in rollout has state s_t, next state s_t+1, reward r_t, state value v(s_t), logP(a_t)
         train_stats = self.train(global_step, rollouts=rollouts)
 
+        # now convert everything to numpy for logging
+        scores, logprobs, ref_logprobs, non_score_reward, score_stats, queries, postprocessed_responses = (
+            map(to_numpy, (scores, logprobs, ref_logprobs, non_score_reward, score_stats, queries, postprocessed_responses)))
+
         stats = self.record_step_stats(
             scores=scores, logprobs=logprobs, ref_logprobs=ref_logprobs, non_score_reward=non_score_reward,
             train_stats=train_stats, score_stats=score_stats, kl_coef=kl_coef, global_step=global_step)
@@ -217,7 +228,6 @@ class PPOTrainer():
         return stats, to_print
 
     def loss(self, rollouts):
-        # TODO: sort out gradient and device
         values = rollouts['values']  # state values V(s)
         old_logprob = rollouts['logprobs']  # logP(action)
         rewards = rollouts['rewards']
