@@ -26,7 +26,7 @@ import wandb
 #             for f in futures:
 #                 f.result()
 
-def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=False):
+def launch_trials(experiment, name, fn, trials, hparam_class, extra_hparams=None, dry_run=False):
     for trial in trials:  # each trial is a group of hparams
         descriptors = []
         kwargs = {}
@@ -47,6 +47,7 @@ def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=Fa
         if dry_run:
             print(f"{job_name}: {kwargs}")
         else:
+            hparams.run.experiment = experiment
             if hparams.run.wandb_log:
                 wandb_run_name = f'{job_name}-' + str(time.time())
                 wandb.init(project=hparams.run.wandb_project, name=wandb_run_name, config=hparams.to_nested_dict())

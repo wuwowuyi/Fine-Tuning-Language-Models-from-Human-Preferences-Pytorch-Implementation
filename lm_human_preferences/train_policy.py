@@ -340,8 +340,8 @@ def train(hparams: TrainPolicyParams):
 
     save_dir: Path = hparams.run.save_dir
     assert save_dir is not None, "save_dir cannot be None!"
-    reward_cktp = save_dir.parent / "reward_ckpt.pt"
-    assert reward_cktp.is_file(), "reward checkpoint does not exist. Train reward first, copy best ckpt file to saved_models and name it reward_ckpt.pt"
+    reward_cktp = save_dir.parent / f"{hparams.run.experiment}_reward_ckpt.pt"
+    assert reward_cktp.is_file(), "reward checkpoint does not exist. Train reward first, copy best ckpt file to saved_models and name it $experiment_reward_ckpt.pt"
 
     hparams.run.train_stage = 'policy'
     hyperparams.dump(hparams)

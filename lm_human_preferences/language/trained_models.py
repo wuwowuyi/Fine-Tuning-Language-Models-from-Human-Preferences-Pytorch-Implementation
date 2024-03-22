@@ -24,6 +24,7 @@ class TrainedModel:
 
         self.device = run_hparams.device
         self.train_stage = run_hparams.train_stage
+        self.experiment = run_hparams.experiment
 
         if name == 'test':
             self.encoding = encodings.Test
@@ -50,7 +51,7 @@ class TrainedModel:
         """
         def _load_ckpt(ckpt: Path):
             if ckpt.is_file():
-                print(f"Load checkpoint from {ckpt}")
+                print(f"Load checkpoint from {ckpt} for {model_for}")
                 return torch.load(ckpt, map_location=self.device)
             else:
                 raise ValueError(f"checkpoint does not exist: {ckpt}")
@@ -61,7 +62,7 @@ class TrainedModel:
         else:  # init from saved checkpoint
             # after training reward or policy, copy best ckpt file to saved_models/,
             # and rename it as policy_ckpt.pt or reward_ckpt.pt
-            return _load_ckpt(self.savedir.parent / f"{model_for}_ckpt.pt")
+            return _load_ckpt(self.savedir.parent / f"{self.experiment}_{model_for}_ckpt.pt")
 
     def _hparams(self, model_for: str):
         if self.name == 'test':

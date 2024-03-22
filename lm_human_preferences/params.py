@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 import torch
 
@@ -31,7 +31,7 @@ class RunHParams(hyperparams.HParams):
     # We always save and load from a local dir.
     # save_dir is for a particular job
     # The checkpoint of language model/reward/policy for initialization is under save_dir.parent
-    save_dir: Optional[Path] = None
+    save_dir: Union[Path, None] = None
 
     device: str = device_type  # 'cpu', 'cuda'
     ckpt: str = '124M_ckpt.pt'  # language model checkpoint
@@ -41,6 +41,7 @@ class RunHParams(hyperparams.HParams):
     # policy: reward model is trained. init policy from the downloaded LM, reward from saved checkpoint
     # resume: init both policy and reward from saved checkpoints
     train_stage: str = 'init'
+    experiment: Union[str, None] = None  # experiment name: sentiment, descriptiveness, cnndm, or tldr
 
     # wandb logging
     wandb_log: bool = True
