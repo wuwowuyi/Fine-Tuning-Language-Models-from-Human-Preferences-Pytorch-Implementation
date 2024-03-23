@@ -399,6 +399,5 @@ def train(hparams: TrainPolicyParams):
                 wandb.log(stats)  #TODO: review
                 log_samples(encoder, hparams, to_print)
 
-            policy.save()  # save model to checkpoint
     finally:
         policy.save()
