@@ -5,8 +5,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from lm_human_preferences.datasets import books
-from lm_human_preferences.datasets.cnndm import cnndm_generator
+from lm_human_preferences.datasets import books, cnndm
 from lm_human_preferences.datasets.tldr import tldr_generator
 
 _registry: dict[str, "Dataset"] = {}
@@ -15,6 +14,7 @@ _registry: dict[str, "Dataset"] = {}
 class Dataset:
     datasets_names = {
         'books': books.dataset_name,
+        'cnndm': cnndm.dataset_name,
     }
 
     def __init__(
@@ -89,7 +89,7 @@ def get_dataset(name) -> Dataset:
 
 CnnDm = Dataset(
     "cnndm",
-    generator=cnndm_generator,
+    generator=cnndm.get_batch,
 )
 
 Tldr = Dataset(

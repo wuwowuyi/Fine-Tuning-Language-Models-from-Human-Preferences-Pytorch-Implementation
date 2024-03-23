@@ -1,68 +1,19 @@
-import hashlib
+import os
 import re
 
-import ftfy
+import numpy as np
+import tiktoken
 from datasets import load_dataset
+from tqdm import tqdm
+
+from lm_human_preferences.datasets import books
 
 dm_single_close_quote = u'\u2019' # unicode
 dm_double_close_quote = u'\u201d'
 END_TOKENS = ['.', '!', '?', '...', "'", "`", '"', dm_single_close_quote, dm_double_close_quote, ")"] # acceptable ways to end a sentence
 
-def read_text_file(text_file):
-    lines = []
-    with open(text_file, "r") as f:
-        for line in f:
-            lines.append(line.strip())
-    return lines
-
-def fix_missing_period(line):
-    """Adds a period to a line that is missing a period"""
-    if "@highlight" in line:
-        return line
-    if line=="":
-        return line
-    if line[-1] in END_TOKENS:
-        return line
-    # print line[-1]
-    return line + "."
-
-def get_art_abs(story_file):
-    lines = read_text_file(story_file)
-    # lines = [fix_missing_period(line) for line in lines]
-    article_lines = []
-    highlights = []
-    next_is_highlight = False
-    for line in lines:
-        if line == "":
-            continue # empty line
-        elif line.startswith("@highlight"):
-            next_is_highlight = True
-        elif next_is_highlight:
-            highlights.append(line)
-        else:
-            article_lines.append(line)
-    article = '\n\n'.join(article_lines)
-
-    # Make abstract into a single string, putting <s> and </s> tags around the sentences
-    highlights = [fix_missing_period(sent) for sent in highlights]
-    # abstract = ' '.join(["%s %s %s" % (SENTENCE_START, sent, SENTENCE_END) for sent in highlights])
-    # abstract = ' '.join(highlights)
-    return article, highlights
-
-def hashhex(s):
-    """Returns a heximal formated SHA1 hash of the input string."""
-    h = hashlib.sha1()
-    h.update(s)
-    return h.hexdigest()
-
-def get_path_of_url(url):
-    if 'dailymail.co.uk' in url or 'mailonsunday.ie' in url or 'lib.store.yahoo.net' in url:
-        site = 'dailymail'
-    else:
-        assert 'cnn.com' in url or 'cnn.hk' in url, url
-        site = 'cnn'
-    url_hash = hashhex(url.encode('utf-8'))
-    return f'{site}/stories/{url_hash}.story'
+dataset_name = 'cnn_dailymail'  # cnn_dailymail from hugging face. 935K rows.
+enc = tiktoken.get_encoding('gpt2')  # consistent with encodings.Main
 
 def clean_up_start(text):
     if text[:2] == 'By':
@@ -76,18 +27,50 @@ def clean_up_start(text):
     return text.strip()
 
 
-def cnndm_generator(mode, seed=0, shuffle=False):
-    if mode == 'valid':
-        mode = 'val'
+def get_batch(data, batch_size):
+    return map(clean_up_start, books.get_batch(data, batch_size, 10 * 2 ** 10))
 
-    dataset = load_dataset("cnn_dailymail", split=mode, streaming=True)  # returns an IterableDataset
-    if shuffle:
-        dataset = dataset.shuffle(seed, buffer_size=100000)
 
-    for x in dataset:  # TODO: to review
-        text = clean_up_start(x['article'])
-        text = ftfy.fix_text(text)
+def prepare_cnndm():
+    """
+    Load dataset from hugging face.
+    Append eot_token to every data point, and concatenate all data points into a huge 1-D numpy array.
+    The array is then saved as a train.bin or val.bin file under the datasets directory.
+    """
+    num_proc = 4  # num_cpu // 2
+    dataset = load_dataset(dataset_name, num_proc=num_proc)
 
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        text = text.split('@highlight')[0].strip()
-        yield text
+    def process(example):
+        ids = enc.encode_ordinary(example['article'])  # encode_ordinary ignores any special tokens
+        ids.append(enc.eot_token)  # add the end of text token, e.g. 50256 for gpt2 bpe
+        out = {'ids': ids, 'len': len(ids)}
+        return out
+
+    # tokenize the dataset
+    tokenized = dataset.map(
+        process,
+        remove_columns=['article'],
+        desc="tokenizing the splits",
+        num_proc=num_proc,
+    )
+
+    for split, dset in tokenized.items():
+        arr_len = np.sum(dset['len'], dtype=np.uint64)
+        filename = os.path.join(os.path.dirname(__file__), f'{dataset_name}_{split}.bin')
+        dtype = np.uint16  # (can do since enc.max_token_value == 50256 is < 2**16)
+        arr = np.memmap(filename, dtype=dtype, mode='w+', shape=(arr_len,))
+        total_batches = (arr_len - 1) // (16 * 2 ** 20) + 1  # 16MB per batch
+
+        idx = 0
+        for batch_idx in tqdm(range(total_batches), desc=f'writing {filename}'):
+            # Batch together samples for faster write
+            batch = dset.shard(num_shards=total_batches, index=batch_idx, contiguous=True).with_format('numpy')
+            arr_batch = np.concatenate(batch['ids'])
+            # Write into mmap
+            arr[idx: idx + len(arr_batch)] = arr_batch
+            idx += len(arr_batch)
+        arr.flush()
+
+
+if __name__ == '__main__':
+    prepare_cnndm()

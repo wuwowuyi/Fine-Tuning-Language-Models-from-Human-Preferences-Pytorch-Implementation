@@ -9,9 +9,8 @@ from tqdm import tqdm
 dataset_name = 'bookcorpus'  # bookcorpus from hugging face. 74M rows.
 enc = tiktoken.get_encoding('gpt2')  # consistent with encodings.Main
 
-def get_batch(data, batch_size):
+def get_batch(data, batch_size, read_length=100):
     batched = []
-    read_length = 100  # long enough to contain at least one complete sentence
     sep = enc.decode([enc.eot_token])  # enc.eot_token was used to separate sentences. see prepare_books().
     ix = np.random.randint(len(data) - read_length * 5, size=batch_size)  # 5 is arbitrary
     for i in ix:
