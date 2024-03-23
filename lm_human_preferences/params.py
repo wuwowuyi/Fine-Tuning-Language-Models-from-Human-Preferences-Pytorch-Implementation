@@ -31,7 +31,10 @@ class RunHParams(hyperparams.HParams):
     # We always save and load from a local dir.
     # save_dir is for a particular job
     # The checkpoint of language model/reward/policy for initialization is under save_dir.parent
-    save_dir: Union[Path, None] = None
+    save_dir: Union[Path, str] = Path(__file__).parent / 'saved_models'
+
+    # directory for human labels to train reward.
+    labels_dir: Union[Path, str] = Path(__file__).parent.parent / 'labels'
 
     device: str = device_type  # 'cpu', 'cuda'
     ckpt: str = '124M_ckpt.pt'  # language model checkpoint

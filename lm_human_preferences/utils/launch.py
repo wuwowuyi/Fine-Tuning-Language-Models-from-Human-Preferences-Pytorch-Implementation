@@ -1,4 +1,3 @@
-import os
 import time
 from pathlib import Path
 
@@ -51,8 +50,10 @@ def launch_trials(experiment, name, fn, trials, hparam_class, extra_hparams=None
             if hparams.run.wandb_log:
                 wandb_run_name = f'{job_name}-' + str(time.time())
                 wandb.init(project=hparams.run.wandb_project, name=wandb_run_name, config=hparams.to_nested_dict())
-            hparams.run.save_dir = Path(__file__).parent.parent / 'saved_models' / job_name
+            hparams.run.save_dir = Path(hparams.run.save_dir) / job_name
+            hparams.run.labels_dir = Path(hparams.run.labels_dir)
             Path.mkdir(hparams.run.save_dir, exist_ok=True)
+            Path.mkdir(hparams.run.labels_dir, exist_ok=True)
             fn(hparams)
 
 
