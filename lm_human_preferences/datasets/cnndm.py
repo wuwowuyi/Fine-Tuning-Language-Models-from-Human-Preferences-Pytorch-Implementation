@@ -37,8 +37,8 @@ def prepare_cnndm():
     Append eot_token to every data point, and concatenate all data points into a huge 1-D numpy array.
     The array is then saved as a train.bin or val.bin file under the datasets directory.
     """
-    num_proc = 4  # num_cpu // 2
-    dataset = load_dataset(dataset_name, num_proc=num_proc)
+    num_proc = 2  # num_cpu // 2
+    dataset = load_dataset(dataset_name, '3.0.0', num_proc=num_proc)
 
     def process(example):
         ids = enc.encode_ordinary(example['article'])  # encode_ordinary ignores any special tokens
@@ -49,7 +49,7 @@ def prepare_cnndm():
     # tokenize the dataset
     tokenized = dataset.map(
         process,
-        remove_columns=['article'],
+        remove_columns=['article', 'highlights'],
         desc="tokenizing the splits",
         num_proc=num_proc,
     )
@@ -59,7 +59,7 @@ def prepare_cnndm():
         filename = os.path.join(os.path.dirname(__file__), f'{dataset_name}_{split}.bin')
         dtype = np.uint16  # (can do since enc.max_token_value == 50256 is < 2**16)
         arr = np.memmap(filename, dtype=dtype, mode='w+', shape=(arr_len,))
-        total_batches = (arr_len - 1) // (16 * 2 ** 20) + 1  # 16MB per batch
+        total_batches = int((arr_len - 1) // (16 * 2 ** 20) + 1)  # 16MB per batch
 
         idx = 0
         for batch_idx in tqdm(range(total_batches), desc=f'writing {filename}'):
@@ -70,6 +70,7 @@ def prepare_cnndm():
             arr[idx: idx + len(arr_batch)] = arr_batch
             idx += len(arr_batch)
         arr.flush()
+        # generated train.bin is ~ 0.5G, val 22.6MB, test 19.7 MB.
 
 
 if __name__ == '__main__':
