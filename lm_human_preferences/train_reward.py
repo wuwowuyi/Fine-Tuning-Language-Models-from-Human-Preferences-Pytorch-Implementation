@@ -15,7 +15,7 @@ from lm_human_preferences.utils import azure, hyperparams
 from lm_human_preferences.utils import core_torch as utils
 
 
-def download_labels(source: str, schemas: dict[str, utils.Schema], total_labels: int, labels_dir='/tmp/azure-cache', file_prefix=''):
+def download_labels(source: str, schemas: dict[str, utils.Schema], total_labels: int, labels_dir='/tmp/azure-cache'):
 
     """
     if self.is_root:
@@ -31,7 +31,7 @@ def download_labels(source: str, schemas: dict[str, utils.Schema], total_labels:
     """
 
     if source != 'test':
-        with open(azure.download_file_cached(source, labels_dir, file_prefix)) as f:
+        with open(azure.download_file_cached(source, labels_dir)) as f:
             results = json.load(f)
             print('Num labels found in source:', len(results))
     else:
@@ -153,8 +153,7 @@ class RewardModelTrainer:
             self.hparams.labels.source,
             schemas=self.data_schemas,
             total_labels=self.hparams.labels.num_train,
-            labels_dir=self.hparams.run.labels_dir,
-            file_prefix=self.hparams.run.experiment
+            labels_dir=self.hparams.run.labels_dir
         )
         self.add_to_buffer(labels)
 
