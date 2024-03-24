@@ -16,17 +16,14 @@ GPT2_Model = {  # mapping to match hugging face's model names
 
 # This class is used as a utility class to initialize reward and policy.
 class TrainedModel:
-    def __init__(self, name, *, run_hparams: RunHParams):
-        self.name = name  # for example, 124M
+    def __init__(self, initial_model: str, *, run_hparams: RunHParams):
+        self.initial_model = initial_model  # checkpoint for initializing model
         self.savedir: Path = run_hparams.save_dir  # save dir for a particular run job.
         self.lm_ckpt = run_hparams.ckpt  # pretrained language model checkpoint
         self.output_ckpt = run_hparams.output_ckpt
-
         self.device = run_hparams.device
-        self.train_stage = run_hparams.train_stage
-        self.experiment = run_hparams.experiment
 
-        if name == 'test':
+        if initial_model == 'test':
             self.encoding = encodings.Test
         else:
             self.encoding = encodings.Main
@@ -41,13 +38,6 @@ class TrainedModel:
     def _checkpoint(self, model_for: str):
         """
         Load checkpoint for model.
-        All checkpoints are stored under `self.savedir`.
-
-        - If `train_stage` is "init", initialize both reward and policy from the pretrained language model
-        - If `train_stage` is "policy", init policy from the pretrained language model,
-            and reward from the checkpoint saved during training reward.
-        - Otherwise load both reward and policy from saved checkpoint.
-
         """
         def _load_ckpt(ckpt: Path):
             if ckpt.is_file():
@@ -56,16 +46,14 @@ class TrainedModel:
             else:
                 raise ValueError(f"checkpoint does not exist: {ckpt}")
 
-        if self.train_stage == 'init' or (self.train_stage == 'policy' and model_for == 'policy'):
+        if self.initial_model:
+            return _load_ckpt(Path(self.initial_model))
+        else:
             # init from the downloaded pre-trained language model
             return _load_ckpt(self.savedir.parent / self.lm_ckpt)
-        else:  # init from saved checkpoint
-            # after training reward or policy, copy best ckpt file to saved_models/,
-            # and rename it as policy_ckpt.pt or reward_ckpt.pt
-            return _load_ckpt(self.savedir.parent / f"{self.experiment}_{model_for}_ckpt.pt")
 
     def _hparams(self, model_for: str):
-        if self.name == 'test':
+        if self.initial_model == 'test':
             hparams = test_hparams()
         else:
             hparams = gpt.ModelParams()  # default hyperparams
@@ -77,6 +65,7 @@ class TrainedModel:
     def init_model(self, model_for: str):
         """
         :param model_for: 'policy', 'reward', etc.
+        :param initial_model: checkpoint to initialize model
         """
         checkpoint = self._checkpoint(model_for)  # NOTE: we always save checkpoint as a dict
         assert checkpoint is not None
@@ -100,13 +89,11 @@ class TrainedModel:
         model.load_state_dict(state_dict)
 
         # overwrite default init of the head layer for policy/reward
-        if self.train_stage == 'init':
+        if not self.initial_model:
             if model_for == 'policy':
                 torch.nn.init.zeros_(model.hp_head.weight)  # TODO: to review. zero initial value?
             else:  # reward
                 torch.nn.init.normal_(model.hp_head.weight, std=1 / np.sqrt(model_args.n_embd + 1))
-        elif self.train_stage == 'policy' and model_for == 'policy':
-            torch.nn.init.zeros_(model.hp_head.weight)  # TODO: to review. zero initial value?
 
         model.to(self.device)
         model = torch.compile(model)  # # use PyTorch 2.0 to compile the model to be faster

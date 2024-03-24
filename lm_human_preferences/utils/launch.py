@@ -4,6 +4,8 @@ from pathlib import Path
 import fire
 import wandb
 
+from lm_human_preferences.utils import hyperparams
+
 
 # def launch(name, f, *, namespace='safety', mode='local') -> None:
 #     if mode == 'local':
@@ -25,28 +27,31 @@ import wandb
 #             for f in futures:
 #                 f.result()
 
-def launch_trials(experiment, name, fn, trials, hparam_class, extra_hparams=None, dry_run=False):
-    for trial in trials:  # each trial is a group of hparams
-        descriptors = []
-        kwargs = {}
-        for k, v, s in trial:
-            if k is not None:
-                if k in kwargs:
-                    print(f'WARNING: overriding key {k} from {kwargs[k]} to {v}')
-                kwargs[k] = v
-            if s.get('descriptor'):
-                descriptors.append(str(s['descriptor']))
-        hparams = hparam_class()
-        hparams.override_from_dict(kwargs)
-        if extra_hparams:
-            hparams.override_from_str_dict(extra_hparams)
-        job_name = (name + '/' + '-'.join(descriptors)).rstrip('/')
-        hparams.validate()
+def params(trial, hparam_class, extra_hparams=None):
+    descriptors = []
+    kwargs = {}
+    for k, v, s in trial:
+        if k is not None:
+            if k in kwargs:
+                print(f'WARNING: overriding key {k} from {kwargs[k]} to {v}')
+            kwargs[k] = v
+        if s.get('descriptor'):
+            descriptors.append(str(s['descriptor']))
+    hparams = hparam_class()
+    hparams.override_from_dict(kwargs)
+    if extra_hparams:
+        hparams.override_from_str_dict(extra_hparams)
+    hparams.validate()
+    return hparams, descriptors
 
+
+def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=False):
+    for trial in trials:  # each trial is a group of hparams
+        hparams, descriptors = params(trial, hparam_class, extra_hparams)
         if dry_run:
-            print(f"{job_name}: {kwargs}")
+            hyperparams.dump(hparams)  # output hparams to out (default to stdout)
         else:
-            hparams.run.experiment = experiment
+            job_name = (name + '/' + '-'.join(descriptors)).rstrip('/')
             if hparams.run.wandb_log:
                 wandb_run_name = f'{job_name}-' + str(time.time())
                 wandb.init(project=hparams.run.wandb_project, name=wandb_run_name, config=hparams.to_nested_dict())

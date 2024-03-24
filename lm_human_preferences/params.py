@@ -40,12 +40,6 @@ class RunHParams(hyperparams.HParams):
     ckpt: str = '124M_ckpt.pt'  # language model checkpoint
     output_ckpt: str = 'output_ckpt.pt'  # trained reward/policy checkpoint
 
-    # init: init both policy and reward from the downloaded LM model.
-    # policy: reward model is trained. init policy from the downloaded LM, reward from saved checkpoint
-    # resume: init both policy and reward from saved checkpoints
-    train_stage: str = 'init'
-    experiment: Union[str, None] = None  # experiment name: sentiment, descriptiveness, cnndm, or tldr
-
     # wandb logging
     wandb_log: bool = True
     wandb_project: str = 'lm_human_preference'

@@ -196,7 +196,7 @@ def launch_train_policy(exp, name, dry_run=False, **extra_hparams):
         raise ValueError(f"Couldn't find experiment '{exp}'")
 
     launch.launch_trials(
-        exp, name, fn=train_policy.train, trials=trials,
+        name, fn=train_policy.train, trials=trials,
         hparam_class=params.TrainPolicyParams, extra_hparams=extra_hparams, dry_run=dry_run)
 
 
@@ -208,7 +208,7 @@ def launch_train_reward(exp, name, dry_run=False, **extra_hparams):
         raise ValueError(f"Couldn't find experiment '{exp}'")
 
     launch.launch_trials(
-        exp, name, fn=train_reward.train, trials=trials,
+        name, fn=train_reward.train, trials=trials,
         hparam_class=params.TrainRewardParams, extra_hparams=extra_hparams, dry_run=dry_run)
 
 

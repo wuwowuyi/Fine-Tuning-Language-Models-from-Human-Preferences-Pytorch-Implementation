@@ -340,10 +340,8 @@ def train(hparams: TrainPolicyParams):
 
     save_dir: Path = hparams.run.save_dir
     assert save_dir is not None, "save_dir cannot be None!"
-    reward_cktp = save_dir.parent / f"{hparams.run.experiment}_reward_ckpt.pt"
-    assert reward_cktp.is_file(), "reward checkpoint does not exist. Train reward first, copy best ckpt file to saved_models and name it $experiment_reward_ckpt.pt"
+    assert Path(hparams.rewards.trained_model).is_file(), "Reward checkpoint does not exist. Please train reward first."
 
-    hparams.run.train_stage = 'policy'
     hyperparams.dump(hparams)
 
     m = trained_models.TrainedModel(hparams.task.policy.initial_model, run_hparams=hparams.run)
@@ -358,9 +356,6 @@ def train(hparams: TrainPolicyParams):
     #         json.dump(m.hparams().to_nested_dict(), f, indent=2)
     #     with tf.io.gfile.GFile(os.path.join(save_dir, 'policy', 'encoding'), 'w') as f:
     #         json.dump(m.encoding.name, f, indent=2)
-
-    score_model = RewardModel(m, encoder)
-    score_model.eval()
 
     ref_policy = Policy(
         m, encoder,
@@ -382,6 +377,10 @@ def train(hparams: TrainPolicyParams):
     if hparams.ppo.whiten_rewards:
         assert minibatch_size >= 8, \
             f"Per-rank minibatch size {minibatch_size} is insufficient for whitening"
+
+    m.initial_model = hparams.rewards.trained_model
+    score_model = RewardModel(m, encoder)
+    score_model.eval()
 
     ppo_trainer = PPOTrainer(
         policy=policy, ref_policy=ref_policy, query_sampler=query_sampler,
