@@ -55,32 +55,36 @@ class Dataset:
             # strip off tokens before start_token and after end_token.
             # and pad tokens if len(tokens) < sequence_length
             for i, text in enumerate(batched):
-                tokens = encoder.encode(text)
-                if start_token is not None:
-                    try:
-                        first_index = tokens.index(start_token)+1
-                        if first_index < len(tokens):
-                            tokens = tokens[first_index:]
-                    except:
-                        pass
-
-                tokens = tokens[:sequence_length]
-
-                if end_token is not None:
-                    try:
-                        last_index = len(tokens)-tokens[::-1].index(end_token)
-                        tokens = tokens[:last_index]
-                    except:
-                        pass
-
-                if len(tokens) < sequence_length:
-                    tokens = tokens + [padding_token] * (sequence_length - len(tokens))
-
-                tokenized[i] = tokens
+                tokenized[i] = prepare_token(text, encoder, start_token, end_token, sequence_length)
 
             return tokenized
 
         return _get_batch
+
+
+def prepare_token(text: str, encoder, start_token, end_token, sequence_length):
+    tokens = encoder.encode(text)
+    if start_token is not None:
+        try:
+            first_index = tokens.index(start_token) + 1
+            if first_index < len(tokens):
+                tokens = tokens[first_index:]
+        except:
+            pass
+
+    tokens = tokens[:sequence_length]
+
+    if end_token is not None:
+        try:
+            last_index = len(tokens) - tokens[::-1].index(end_token)
+            tokens = tokens[:last_index]
+        except:
+            pass
+
+    if len(tokens) < sequence_length:
+        tokens = tokens + [encoder.padding_token] * (sequence_length - len(tokens))
+
+    return tokens
 
 
 def get_dataset(name) -> Dataset:

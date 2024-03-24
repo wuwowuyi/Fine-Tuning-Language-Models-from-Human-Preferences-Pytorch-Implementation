@@ -1,79 +1,60 @@
-#!/usr/bin/env python3
+from pathlib import Path
 
-import os
-from functools import partial
+import torch
 
-from mpi4py import MPI
-import tensorflow as tf
-
-from lm_human_preferences.utils import launch, hyperparams
-from lm_human_preferences.utils import core as utils
-from lm_human_preferences.policy import Policy
-from lm_human_preferences.language import trained_models
+from launch import get_experiments
 from lm_human_preferences import lm_tasks
-from lm_human_preferences import train_policy
+from lm_human_preferences.language import trained_models, lm_datasets
+from lm_human_preferences.params import RunHParams, TaskHParams
+from lm_human_preferences.policy import Policy
+from lm_human_preferences.utils import launch
 
-def sample_policy(save_dir=None, savescope='policy', temperature=1.0, seed=None, batch_size=4, nsamples=0):
-    hparams = train_policy.HParams()
-    hparams.override_from_json_file(os.path.join(save_dir, 'train_policy_hparams.json'))
-    hparams.run.save_dir = os.path.join(save_dir, 'policy')
-    print('hparams', hparams)
-    task = hparams.task
 
-    comm = MPI.COMM_WORLD
-    nsamples_per_rank = utils.exact_div(nsamples, comm.Get_size())
-    with tf.Graph().as_default():
-        m = trained_models.TrainedModel(name='sample', run_hparams=hparams.run, scope='policy')
-        encoder = m.encoding.get_encoder()
-        hyperparams.dump(m.hparams(), name='model_hparams')
+def _get_policy(policy_cktp: Path, task: TaskHParams):
+    run_params = RunHParams()
+    m = trained_models.TrainedModel(policy_cktp, run_hparams=run_params)
+    encoder = m.encoding.get_encoder()
 
-        utils.set_mpi_seed(seed)
+    return Policy(
+        m, encoder,
+        embed_queries=lm_tasks.query_formatter(task, encoder),
+        temperature=task.policy.temperature)
 
-        policy = Policy(
-            m, scope='policy',
-            is_root=True, # just init on every rank, simplifies code
-            embed_queries=lm_tasks.query_formatter(task, encoder),
-            temperature=temperature,
-        )
 
-        query_sampler = lm_tasks.make_query_sampler(
-            hparams=task, encoder=encoder, comm=comm,
-            batch_size=batch_size, mode='test'
-        )
+@torch.no_grad()
+def policy_respond(context: str, policy_cktp: str, experiment: str, **kwargs):
+    """
+    Given context return response
+    """
+    if not context or not experiment:
+        raise ValueError("Please provide some context text and experiment name for example \'sentiment\'.")
+    policy_cktp = Path(policy_cktp)
+    assert policy_cktp.is_file(), "Policy checkpoint does not exist."
 
-        init_ops = tf.group(
-            tf.compat.v1.global_variables_initializer(),
-            tf.compat.v1.local_variables_initializer(),
-        )
+    trial = get_experiments()[experiment]
+    task, _ = launch.params(trial, TaskHParams, kwargs)
 
-        with utils.mpi_session() as sess:
-            init_ops.run()
-            @utils.graph_function()
-            def sample_queries():
-                return query_sampler()['tokens']
+    policy = _get_policy(policy_cktp, task)
+    policy.eval()
+    encoder = policy.encoder
 
-            tf.compat.v1.get_default_graph().finalize()
+    start_token = encoder.encode(task.start_text) if task.start_text else None
+    end_token = encoder.encode(task.end_text) if task.end_text else None
+    tokens = lm_datasets.prepare_token(context, encoder, start_token, end_token, task.query_length)
+    query = torch.as_tensor(tokens, dtype=torch.int32, device=policy.device)
+    response = policy.respond(query, length=task.response_length)['responses']
+    print(f"query is: {query}")
+    print(f"response is: {response}")
 
-            generated = 0
-            while nsamples_per_rank == 0 or generated < nsamples_per_rank:
-                queries = sample_queries()
-                rollouts = policy.respond(queries, length=task.response_length)
-                assert len(queries.tolist()) == batch_size
-                assert len(rollouts['responses'].tolist()) == batch_size
-                for q, r in zip(queries.tolist(), rollouts['responses'].tolist()):
-                    print('=' * 80)
-                    print(encoder.decode(q).replace("\n", "⏎"))
-                    print(encoder.decode(r).replace("\n", "⏎"))
-                generated += batch_size
-
-def launch_sample(mode='local', mpi=8, **kwargs):
-    launch.launch('sample', partial(sample_policy, **kwargs), mode=mode, mpi=mpi)
 
 if __name__ == '__main__':
     launch.main(dict(
-        sample=launch_sample,
+        #sample=sample_policy,
+        respond=policy_respond
     ))
 
 """
-./sample.py sample --save_dir gs://jeffwu-rcall/results/safety/lmhf-sent-69c5170-1909161359/ --mpi 8
+context=hello world
+policy_ckpt=/path/to/checkpoint
+./sample.py sample --context $context --policy_ckpt $policy_ckpt --experiment sentiment
 """
