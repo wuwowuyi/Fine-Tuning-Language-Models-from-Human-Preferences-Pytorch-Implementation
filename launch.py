@@ -127,6 +127,7 @@ def get_experiments():
         _books_task,
         bind('rewards.kl_coef', 0.15),
         bind('rewards.adaptive_kl', 'on'),
+        # In paper 3.1.2 says target is 10 nats?
         bind('rewards.adaptive_kl.target', 6.0),
 
         bind('rewards.train_new_model', 'on'),
@@ -158,7 +159,10 @@ def get_experiments():
 
         bind('ppo.total_episodes', 1_000_000),
         bind('ppo.lr', 2e-6),
+
+        # 0.1 or 0.01? In section 3.2 of paper, beta=0.1.
         bind('rewards.kl_coef', 0.01),
+
         # bind('rewards.adaptive_kl', 'on'),
         # bind('rewards.adaptive_kl.target', 18.0),
         bind('ppo.batch_size', 32),
