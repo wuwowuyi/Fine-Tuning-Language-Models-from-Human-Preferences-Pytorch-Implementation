@@ -7,11 +7,12 @@ from typing import Union
 
 import numpy as np
 import torch
+import tqdm
 import wandb
 
 from lm_human_preferences import lm_tasks
 from lm_human_preferences.language import trained_models
-from lm_human_preferences.params import TrainPolicyParams, TaskHParams
+from lm_human_preferences.params import TrainPolicyParams, TaskHParams, AdaptiveKLParams
 from lm_human_preferences.policy import Policy
 from lm_human_preferences.rewards import RewardModel
 from lm_human_preferences.utils import hyperparams, core_torch as utils
@@ -64,7 +65,7 @@ class FixedKLController:
 
 
 class AdaptiveKLController:
-    def __init__(self, init_kl_coef, hparams):
+    def __init__(self, init_kl_coef, hparams: AdaptiveKLParams):
         self.value: float = init_kl_coef  # beta in paper
         self.hparams = hparams
 
@@ -224,7 +225,9 @@ class PPOTrainer():
         # Record profiles of the step times
         step_time = time.time() - step_started_at
         eps_per_second = float(self.hparams.ppo.batch_size) / step_time
-        print(f"[ppo_step {global_step}] step_time={step_time:.2f}s, eps/s={eps_per_second:.2f}")
+
+        if global_step % 100 == 0:
+            print(f"[ppo_step {global_step}] step_time={step_time:.2f}s, eps/s={eps_per_second:.2f}")
         return stats, to_print
 
     def loss(self, rollouts):
@@ -324,8 +327,8 @@ def log_samples(encoder, hparams: TrainPolicyParams, to_print: dict):
     for i in range(min(3, len(queries))):
         sample_kl = np.sum(logprobs[i] - ref_logprobs[i])
         wandb.log({
-            "queries": encoder.decode(queries[i][:hparams.task.query_length]).replace("\n", "⏎"),
-            "responses": encoder.decode(responses[i]).replace("\n", "⏎"),
+            "queries": str(encoder.decode(queries[i][:hparams.task.query_length]).replace("\n", "⏎")),
+            "responses": str(encoder.decode(responses[i]).replace("\n", "⏎")),
             "score": scores[i],
             "kl": sample_kl,
             "total": scores[i] - hparams.rewards.kl_coef * sample_kl
@@ -390,13 +393,15 @@ def train(hparams: TrainPolicyParams):
     policy.save()
 
     try:
-       for global_step in range(nupdates(hparams)):
+       for global_step in tqdm.trange(nupdates(hparams)):
             stats, to_print = ppo_trainer.step(global_step)
 
-            # log
             if hparams.run.wandb_log and global_step % hparams.run.log_interval == 0:
                 wandb.log(stats)  #TODO: review
                 log_samples(encoder, hparams, to_print)
+
+            if global_step % hparams.run.save_interval == 0:
+                policy.save()
 
     finally:
         policy.save()
