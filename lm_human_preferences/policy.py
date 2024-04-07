@@ -27,6 +27,7 @@ class Policy(nn.Module):
 
         # model has two heads, the language model head (for policy action) and value head for state value V(s).
         self.lm_model, self.lm_params, *_ = self.trained_model.init_model('policy')  # pre-trained language model
+        self.model = self.lm_model.module if self.trained_model.ddp else self.lm_model
 
         # Adjust this number to avoid OutOfMemoryError.
         self.micro_rollout_batch_size = -1  # make sure gradients not needed when use
@@ -117,12 +118,11 @@ class Policy(nn.Module):
 
     def configure_optimizers(self, hparams: TrainPolicyParams):
         device_type = 'cuda' if 'cuda' in self.device else self.device
-        return self.lm_model.configure_optimizers(hparams.ppo.lr, device_type)
+        return self.model.configure_optimizers(hparams.ppo.lr, device_type)
 
     def save(self):
-        model = self.lm_model.module if self.trained_model.ddp else self.lm_model
         ckpt = {
-            'model': model.state_dict(),
+            'model': self.model.state_dict(),
         }
         f = self.trained_model.get_ckpt_filename('policy')
         torch.save(ckpt, f)

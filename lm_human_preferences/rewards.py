@@ -21,6 +21,8 @@ class RewardModel(nn.Module):
         self.padding_token = self.encoder.padding_token
 
         self.lm_model, self.lm_params, ckpt = self.trained_model.init_model('reward')
+        self.model = self.lm_model.module if self.trained_model.ddp else self.lm_model
+
         self.reward_gain = ckpt.pop('gain') if 'gain' in ckpt else nn.Parameter(torch.ones((), device=self.device))
         self.reward_bias = ckpt.pop('bias') if 'bias' in ckpt else nn.Parameter(torch.zeros((), device=self.device))
 
@@ -67,14 +69,13 @@ class RewardModel(nn.Module):
 
     def configure_optimizers(self, hparams: TrainRewardParams):
         device_type = 'cuda' if 'cuda' in self.device else self.device
-        return self.lm_model.configure_optimizers(
+        return self.model.configure_optimizers(
             hparams.lr, device_type, extra_params={'reward_gain': self.reward_gain, 'reward_bias': self.reward_bias}
         )
 
     def save(self):
-        model = self.lm_model.module if self.trained_model.ddp else self.lm_model
         ckpt = {
-            'model': model.state_dict(),
+            'model': self.model.state_dict(),
             'gain': self.reward_gain,
             'bias': self.reward_bias
         }
