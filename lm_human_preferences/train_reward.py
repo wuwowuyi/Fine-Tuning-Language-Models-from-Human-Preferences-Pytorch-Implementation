@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
 import json
+import os
 from contextlib import nullcontext
 
 import numpy as np
 import torch
+import tqdm
 import wandb
 from torch.distributed import destroy_process_group
 
@@ -169,11 +171,17 @@ class RewardModelTrainer:
         lr = self.hparams.lr  # for logging
         optimizer.zero_grad(set_to_none=True)  # just in case
 
-        train_indices = torch.randperm(self.hparams.labels.num_train)
-        # effective batch size to avoid OutOfMemory Error.
-        micro_batch_size = self.hparams.batch_size // self.hparams.gradient_accumulation_steps
-        step_loss = 0  # for logging
-        for index in range(utils.ceil_div(self.hparams.labels.num_train, micro_batch_size)):
+        world_size = int(os.environ['WORLD_SIZE']) if self.hparams.run.ddp else 1
+        num_train = self.hparams.labels.num_train // world_size
+        train_indices = self.hparams.run.ddp_localrank * num_train + torch.randperm(num_train)
+
+        steps_per_batch = self.hparams.gradient_accumulation_steps * world_size
+        assert self.hparams.batch_size % steps_per_batch == 0
+        micro_batch_size = self.hparams.batch_size // steps_per_batch
+
+        step_loss = 0  # for logging only
+        total_steps = utils.ceil_div(num_train, micro_batch_size)
+        for index in tqdm.trange(total_steps):
             start_index = index * micro_batch_size
             end_index = start_index + micro_batch_size
             indices = train_indices[start_index:end_index]
@@ -205,18 +213,19 @@ class RewardModelTrainer:
                 optimizer.zero_grad()
 
                 # if index % self.hparams.run.log_interval == 0:
-                step = (index + 1) // self.hparams.gradient_accumulation_steps
-                if self.hparams.run.wandb_log:
-                    wandb.log({
-                        "iter": step,
-                        "train/loss": step_loss,
-                        "lr": lr,
-                    })
-                print(f"iter {step}: loss {step_loss:.4f}")
+                if self.hparams.run.master_process:
+                    step = (index + 1) // self.hparams.gradient_accumulation_steps
+                    if self.hparams.run.wandb_log:
+                        wandb.log({
+                            "iter": step,
+                            "train/loss": step_loss,
+                            "lr": lr,
+                        })
+                    print(f"iter {step}: loss {step_loss:.4f}")
                 step_loss = 0  # reset
 
                 # schedule learning rate
-                lr = (1 - start_index / self.hparams.labels.num_train) * self.hparams.lr
+                lr = (1 - index / total_steps) * self.hparams.lr
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = lr
 

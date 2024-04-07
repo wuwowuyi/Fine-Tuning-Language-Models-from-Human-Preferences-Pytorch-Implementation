@@ -40,7 +40,7 @@ class RunHParams(hyperparams.HParams):
     # envs are set by torchrun. https://pytorch.org/docs/stable/elastic/run.html#environment-variables
     ddp: bool = int(os.environ.get('RANK', -1)) != -1  # is this a ddp run?
     ddp_backend: str = 'nccl'  # 'nccl', 'gloo', etc. Typically `nccl` for GPU, `gloo` for CPU.
-    ddp_localrank: int = int(os.environ.get('LOCAL_RANK', -1))  # GPU local id [0, nproc-per-node - 1]
+    ddp_localrank: int = int(os.environ.get('LOCAL_RANK', 0))  # GPU local id [0, nproc-per-node - 1]
     master_process: bool = not ddp or int(os.environ.get('RANK')) == 0  # master does logging, save checkpoint.
 
     device: str = f'cuda:{ddp_localrank}' if ddp else device_type  # 'cpu', 'cuda', 'cuda:0', 'cuda:1', etc.
@@ -86,7 +86,7 @@ class TrainRewardParams(hyperparams.HParams):
     task: TaskHParams = field(default_factory=TaskHParams)
     labels: LabelHParams = field(default_factory=LabelHParams)
 
-    batch_size: int = 40  # micro_batch_size = batch_size / gradient_accumulation_steps
+    batch_size: int = 40  # micro_batch_size = batch_size / (gradient_accumulation_steps * world_size)
     gradient_accumulation_steps: int = 1  # increase to avoid OutOfMemory Error
     lr: float = 5e-5
     grad_clip = 1.0
