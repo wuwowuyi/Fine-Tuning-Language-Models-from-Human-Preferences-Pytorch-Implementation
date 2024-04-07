@@ -244,7 +244,6 @@ def train(hparams: TrainRewardParams):
         temperature=hparams.task.policy.temperature)
     ref_policy.eval()  # no dropout
 
-    m.initial_model = None
     reward_model = rewards.RewardModel(m, encoder)
     reward_model.train()
 
