@@ -71,7 +71,7 @@ class RewardModelTrainer:
 
         self.ptdtype: torch.dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
         self.run_ctx = nullcontext() if self.hparams.run.device == 'cpu' \
-            else torch.amp.autocast(device_type=self.hparams.run.device, dtype=self.ptdtype)
+            else torch.amp.autocast(device_type='cuda', dtype=self.ptdtype)
 
         if self.hparams.normalize_before or self.hparams.normalize_after:
 
