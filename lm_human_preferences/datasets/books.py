@@ -28,7 +28,7 @@ def prepare_books():
     Append eot_token to every data point, concatenate into a 1-D huge numpy array,
     and save as a train.bin file under the datasets directory.
     """
-    num_proc = 4  # num_cpu // 2
+    num_proc = 8  # num_cpu // 2
     dataset = load_dataset(dataset_name, num_proc=num_proc)
     split_dataset = dataset["train"].train_test_split(test_size=0.0005, seed=2357, shuffle=True)
 

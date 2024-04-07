@@ -37,7 +37,7 @@ def prepare_cnndm():
     Append eot_token to every data point, and concatenate all data points into a huge 1-D numpy array.
     The array is then saved as a train.bin or val.bin file under the datasets directory.
     """
-    num_proc = 2  # num_cpu // 2
+    num_proc = 8  # num_core // 2
     dataset = load_dataset(dataset_name, '3.0.0', num_proc=num_proc)
 
     def process(example):
