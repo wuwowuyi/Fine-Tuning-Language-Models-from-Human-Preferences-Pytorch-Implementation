@@ -64,8 +64,11 @@ def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=Fa
 
                 # down the desired gradient accumulation iterations per process proportionally
                 ddp_world_size = int(os.environ['WORLD_SIZE'])  # total processes
-                assert hparams.gradient_accumulation_steps % ddp_world_size == 0
-                hparams.gradient_accumulation_steps //= ddp_world_size
+                if hparams.gradient_accumulation_steps > 1:
+                    assert hparams.gradient_accumulation_steps % ddp_world_size == 0
+                    hparams.gradient_accumulation_steps //= ddp_world_size
+            else:
+                print('\nDDP is not enabled.\n')
 
             hparams.run.save_dir = Path(hparams.run.save_dir) / job_name
             hparams.run.labels_dir = Path(hparams.run.labels_dir)

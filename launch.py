@@ -13,8 +13,7 @@ books_task = combos(
     bind('truncate_token', 13), # Encoding of '.' -- end completions at the end of a sentence.
     bind('truncate_after', 16), # Make sure completions are at least 16 tokens long.
 
-    bind('policy.temperature', 0.7),
-    bind('policy.initial_model', '124M'),
+    bind('policy.temperature', 0.7)
 )
 
 summarize_cnndm_task = combos(
@@ -28,8 +27,7 @@ summarize_cnndm_task = combos(
     bind('truncate_after', 55),
     bind('truncate_token', 198),  # '\n'
 
-    bind('policy.temperature', 0.5),
-    bind('policy.initial_model', '124M'),
+    bind('policy.temperature', 0.5)
 )
 
 summarize_tldr_task = combos(
@@ -41,8 +39,7 @@ summarize_tldr_task = combos(
     bind('truncate_after', 55),
     bind('truncate_token', 198),  # '\n'
 
-    bind('policy.temperature', 0.7),
-    bind('policy.initial_model', '124M'),
+    bind('policy.temperature', 0.7)
 )
 
 def get_train_reward_experiments():

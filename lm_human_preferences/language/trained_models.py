@@ -18,7 +18,7 @@ GPT2_Model = {  # mapping to match hugging face's model names
 
 # This class is used as a utility class to initialize reward and policy.
 class TrainedModel:
-    def __init__(self, initial_model: Union[str, Path], *, run_hparams: RunHParams):
+    def __init__(self, initial_model: Union[str, Path, None], *, run_hparams: RunHParams):
         self.initial_model = initial_model  # checkpoint for initializing model
         self.savedir: Path = run_hparams.save_dir  # save dir for a particular run job.
         self.lm_ckpt = run_hparams.ckpt  # pretrained language model checkpoint

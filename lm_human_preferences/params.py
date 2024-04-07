@@ -55,7 +55,7 @@ class RunHParams(hyperparams.HParams):
 @dataclass
 class PolicyHParams(hyperparams.HParams):
     temperature: float = 1.0  # lower this number to improve sample quality.
-    initial_model: str = None
+    initial_model: Optional[str] = None
 
 
 @dataclass
@@ -150,6 +150,8 @@ class TrainPolicyParams(hyperparams.HParams):
     task: TaskHParams = field(default_factory=TaskHParams)
     rewards: RewardHParams = field(default_factory=RewardHParams)
     ppo: PpoHParams = field(default_factory=PpoHParams)
+
+    gradient_accumulation_steps: int = 1  # increase to avoid OutOfMemory Error
 
     def validate(self, *, prefix=''):
         super().validate(prefix=prefix)
