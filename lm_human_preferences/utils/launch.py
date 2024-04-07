@@ -1,8 +1,11 @@
+import os
 import time
 from pathlib import Path
 
 import fire
+import torch
 import wandb
+from torch.distributed import init_process_group
 
 from lm_human_preferences.utils import hyperparams
 
@@ -52,13 +55,27 @@ def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=Fa
             hyperparams.dump(hparams)  # output hparams to out (default to stdout)
         else:
             job_name = (name + '/' + '-'.join(descriptors)).rstrip('/')
-            if hparams.run.wandb_log:
-                wandb_run_name = f'{job_name}-' + str(time.time())
-                wandb.init(project=hparams.run.wandb_project, name=wandb_run_name, config=hparams.to_nested_dict())
+
+            # setup ddp
+            if hparams.run.ddp:
+                init_process_group(backend=hparams.run.ddp_backend)  # default to nccl for GPU training
+                hparams.run.seed = int(os.environ['RANK'])  # each process gets a different seed
+                torch.cuda.set_device(hparams.run.device)  # set default device for current process
+
+                # down the desired gradient accumulation iterations per process proportionally
+                ddp_world_size = int(os.environ['WORLD_SIZE'])  # total processes
+                assert hparams.gradient_accumulation_steps % ddp_world_size == 0
+                hparams.gradient_accumulation_steps //= ddp_world_size
+
             hparams.run.save_dir = Path(hparams.run.save_dir) / job_name
             hparams.run.labels_dir = Path(hparams.run.labels_dir)
-            Path.mkdir(hparams.run.save_dir, exist_ok=True)
-            Path.mkdir(hparams.run.labels_dir, exist_ok=True)
+            if hparams.run.master_process:
+                Path.mkdir(hparams.run.save_dir, exist_ok=True)
+                Path.mkdir(hparams.run.labels_dir, exist_ok=True)
+                if hparams.run.wandb_log:
+                    wandb_run_name = f'{job_name}-' + str(time.time())
+                    wandb.init(project=hparams.run.wandb_project, name=wandb_run_name, config=hparams.to_nested_dict())
+
             fn(hparams)
 
 

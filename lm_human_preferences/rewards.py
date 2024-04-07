@@ -72,12 +72,16 @@ class RewardModel(nn.Module):
         )
 
     def save(self):
+        model = self.lm_model.module if self.trained_model.ddp else self.lm_model
         ckpt = {
-            'model': self.lm_model.state_dict(),
+            'model': model.state_dict(),
             'gain': self.reward_gain,
             'bias': self.reward_bias
         }
         f = self.trained_model.get_ckpt_filename('reward')
         torch.save(ckpt, f)
         print(f'Reward model has been saved to {f}')
+
+    def set_grad_sync(self, sync: bool):
+        self.lm_model.require_backward_grad_sync = sync
 

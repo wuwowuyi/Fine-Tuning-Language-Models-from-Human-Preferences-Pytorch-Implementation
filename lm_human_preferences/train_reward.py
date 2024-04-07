@@ -6,6 +6,7 @@ from contextlib import nullcontext
 import numpy as np
 import torch
 import wandb
+from torch.distributed import destroy_process_group
 
 from lm_human_preferences import label_types, lm_tasks, rewards
 from lm_human_preferences.language import trained_models
@@ -181,6 +182,11 @@ class RewardModelTrainer:
             for k, v in minibatch.items():
                 minibatch[k] = v.to(self.hparams.run.device)
 
+            last_micro_step = (index + 1) % self.hparams.gradient_accumulation_steps == 0
+            if self.hparams.run.ddp:
+                # in DDP training we only need to sync gradients at the last micro step.
+                self.reward_model.set_grad_sync(last_micro_step)
+
             with self.run_ctx:
                 stats = self.label_type.loss(reward_model=self.reward_model.get_rewards, labels=minibatch)
                 loss = stats['loss'] / self.hparams.gradient_accumulation_steps
@@ -188,7 +194,7 @@ class RewardModelTrainer:
             step_loss += loss.item()
             scaler.scale(loss).backward()
 
-            if (index + 1) % self.hparams.gradient_accumulation_steps == 0:
+            if last_micro_step:
                 # clip the gradient
                 # if self.hparams.grad_clip != 0.0:
                 #     # need scaler.unscale_(optimizer) if using amp
@@ -272,3 +278,7 @@ def train(hparams: TrainRewardParams):
     reward_trainer.train()
 
     reward_model.save()
+
+    if hparams.run.ddp:
+        destroy_process_group()
+

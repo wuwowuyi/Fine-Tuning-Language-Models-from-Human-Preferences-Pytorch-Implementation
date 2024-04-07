@@ -120,8 +120,9 @@ class Policy(nn.Module):
         return self.lm_model.configure_optimizers(hparams.ppo.lr, device_type)
 
     def save(self):
+        model = self.lm_model.module if self.trained_model.ddp else self.lm_model
         ckpt = {
-            'model': self.lm_model.state_dict(),
+            'model': model.state_dict(),
         }
         f = self.trained_model.get_ckpt_filename('policy')
         torch.save(ckpt, f)

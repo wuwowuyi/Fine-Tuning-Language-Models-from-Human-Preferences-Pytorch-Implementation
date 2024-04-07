@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Union
@@ -36,7 +37,13 @@ class RunHParams(hyperparams.HParams):
     # directory for human labels to train reward.
     labels_dir: Union[Path, str] = Path(__file__).parent.parent / 'labels'
 
-    device: str = device_type  # 'cpu', 'cuda'
+    # envs are set by torchrun. https://pytorch.org/docs/stable/elastic/run.html#environment-variables
+    ddp: bool = int(os.environ.get('RANK', -1)) != -1  # is this a ddp run?
+    ddp_backend: str = 'nccl'  # 'nccl', 'gloo', etc. Typically `nccl` for GPU, `gloo` for CPU.
+    ddp_localrank: int = int(os.environ.get('LOCAL_RANK', -1))  # GPU local id [0, nproc-per-node - 1]
+    master_process: bool = not ddp or int(os.environ.get('RANK')) == 0  # master does logging, save checkpoint.
+
+    device: str = f'cuda:{ddp_localrank}' if ddp else device_type  # 'cpu', 'cuda', 'cuda:0', 'cuda:1', etc.
     ckpt: str = '124M_ckpt.pt'  # language model checkpoint
     output_ckpt: str = 'output_ckpt.pt'  # trained reward/policy checkpoint
 

@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import tqdm
 import wandb
+from torch.distributed import destroy_process_group
 
 from lm_human_preferences import lm_tasks
 from lm_human_preferences.language import trained_models
@@ -390,18 +391,21 @@ def train(hparams: TrainPolicyParams):
         score_fn=make_score_fn(hparams.task, score_model=score_model),
         hparams=hparams)
 
-    policy.save()
-
     try:
        for global_step in tqdm.trange(nupdates(hparams)):
             stats, to_print = ppo_trainer.step(global_step)
 
-            if hparams.run.wandb_log and global_step % hparams.run.log_interval == 0:
-                wandb.log(stats)  #TODO: review
-                log_samples(encoder, hparams, to_print)
+            if hparams.run.master_process:
+                if hparams.run.wandb_log and global_step % hparams.run.log_interval == 0:
+                    wandb.log(stats)  #TODO: review
+                    log_samples(encoder, hparams, to_print)
 
-            if global_step % hparams.run.save_interval == 0:
-                policy.save()
+                if global_step % hparams.run.save_interval == 0:
+                    policy.save()
 
     finally:
-        policy.save()
+        if hparams.run.master_process:
+            policy.save()
+
+        if hparams.run.ddp:
+            destroy_process_group()
