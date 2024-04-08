@@ -95,7 +95,7 @@ class TrainRewardParams(hyperparams.HParams):
     lr: float = 5e-5
     grad_clip = 1.0
 
-    rollout_batch_size: int = 64
+    rollout_batch_size: int = 64  # same as batch_size, this is also global
     normalize_samples: int = 0  # Samples used to estimate reward mean and std
     debug_normalize: int = 0  # Samples used to check that normalization worked
     # Whether, before training, to normalize the rewards on the policy to the scales on the training buffer.

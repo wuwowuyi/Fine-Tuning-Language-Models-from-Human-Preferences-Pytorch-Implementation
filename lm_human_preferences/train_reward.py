@@ -177,6 +177,7 @@ class RewardModelTrainer:
         lr = self.hparams.lr  # for logging
         optimizer.zero_grad(set_to_none=True)  # just in case
 
+        # we train on each point exactly once
         world_size = int(os.environ['WORLD_SIZE']) if self.hparams.run.ddp else 1
         num_train = self.hparams.labels.num_train // world_size
         train_indices = self.hparams.run.ddp_localrank * num_train + torch.randperm(num_train)
@@ -263,8 +264,10 @@ def train(hparams: TrainRewardParams):
     reward_model = rewards.RewardModel(m, encoder)
     reward_model.train()
 
+    world_size = int(os.environ['WORLD_SIZE']) if hparams.run.ddp else 1
+    query_batch_size = max(utils.exact_div(hparams.rollout_batch_size, world_size), 8)  # not too small for computing stats
     query_sampler = lm_tasks.make_query_sampler(
-        hparams=hparams.task, encoder=encoder, batch_size=hparams.rollout_batch_size, device=hparams.run.device
+        hparams=hparams.task, encoder=encoder, batch_size=query_batch_size, device=hparams.run.device
     )
 
     reward_trainer = RewardModelTrainer(
