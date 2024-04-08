@@ -1,4 +1,3 @@
-import os
 import time
 from pathlib import Path
 
@@ -7,6 +6,7 @@ import torch
 import wandb
 from torch.distributed import init_process_group
 
+from lm_human_preferences import params
 from lm_human_preferences.utils import hyperparams, azure
 
 
@@ -30,7 +30,7 @@ from lm_human_preferences.utils import hyperparams, azure
 #             for f in futures:
 #                 f.result()
 
-def params(trial, hparam_class, extra_hparams=None):
+def get_params(trial, hparam_class, extra_hparams=None):
     descriptors = []
     kwargs = {}
     for k, v, s in trial:
@@ -50,14 +50,14 @@ def params(trial, hparam_class, extra_hparams=None):
 
 def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=False):
     for trial in trials:  # each trial is a group of hparams
-        hparams, descriptors = params(trial, hparam_class, extra_hparams)
+        hparams, descriptors = get_params(trial, hparam_class, extra_hparams)
         if dry_run:
             hyperparams.dump(hparams)  # output hparams to out (default to stdout)
         else:
             job_name = (name + '/' + '-'.join(descriptors)).rstrip('/')
             hparams.run.save_dir = Path(hparams.run.save_dir) / job_name
             hparams.run.labels_dir = Path(hparams.run.labels_dir)
-            if hparams.run.master_process:
+            if params.master_process:
                 Path.mkdir(hparams.run.save_dir, exist_ok=True)
                 Path.mkdir(hparams.run.labels_dir, exist_ok=True)
                 # download labels

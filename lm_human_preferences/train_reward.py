@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import json
-import os
 from contextlib import nullcontext
 
 import numpy as np
@@ -10,7 +9,7 @@ import tqdm
 import wandb
 from torch.distributed import destroy_process_group
 
-from lm_human_preferences import label_types, lm_tasks, rewards
+from lm_human_preferences import label_types, lm_tasks, rewards, params
 from lm_human_preferences.language import trained_models
 from lm_human_preferences.params import TrainRewardParams
 from lm_human_preferences.policy import Policy
@@ -178,11 +177,10 @@ class RewardModelTrainer:
         optimizer.zero_grad(set_to_none=True)  # just in case
 
         # we train on each point exactly once
-        world_size = int(os.environ['WORLD_SIZE']) if self.hparams.run.ddp else 1
-        num_train = self.hparams.labels.num_train // world_size
-        train_indices = self.hparams.run.ddp_localrank * num_train + torch.randperm(num_train)
+        num_train = self.hparams.labels.num_train // params.world_size
+        train_indices = params.ddp_localrank * num_train + torch.randperm(num_train)
 
-        steps_per_batch = self.hparams.gradient_accumulation_steps * world_size
+        steps_per_batch = self.hparams.gradient_accumulation_steps * params.world_size
         assert self.hparams.batch_size % steps_per_batch == 0
         micro_batch_size = self.hparams.batch_size // steps_per_batch
 
@@ -220,7 +218,7 @@ class RewardModelTrainer:
                 optimizer.zero_grad()
 
                 # if index % self.hparams.run.log_interval == 0:
-                if self.hparams.run.master_process:
+                if params.master_process:
                     step = (index + 1) // self.hparams.gradient_accumulation_steps
                     if self.hparams.run.wandb_log:
                         wandb.log({
@@ -244,11 +242,11 @@ class RewardModelTrainer:
 
 def train(hparams: TrainRewardParams):
 
-    seed = 1337 + hparams.run.seed + hparams.run.ddp_localrank
+    seed = 1337 + hparams.run.seed + params.ddp_localrank
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    if hparams.run.master_process:
+    if params.master_process:
         hyperparams.dump(hparams)  # output hparams to out (default to stdout)
 
     m = trained_models.TrainedModel(hparams.task.policy.initial_model, run_hparams=hparams.run)
@@ -264,8 +262,7 @@ def train(hparams: TrainRewardParams):
     reward_model = rewards.RewardModel(m, encoder)
     reward_model.train()
 
-    world_size = int(os.environ['WORLD_SIZE']) if hparams.run.ddp else 1
-    query_batch_size = max(utils.exact_div(hparams.rollout_batch_size, world_size), 8)  # not too small for computing stats
+    query_batch_size = max(utils.exact_div(hparams.rollout_batch_size, params.world_size), 8)  # not too small for computing stats
     query_sampler = lm_tasks.make_query_sampler(
         hparams=hparams.task, encoder=encoder, batch_size=query_batch_size, device=hparams.run.device
     )
@@ -295,7 +292,7 @@ def train(hparams: TrainRewardParams):
 
     reward_trainer.train()
 
-    if hparams.run.master_process:
+    if params.master_process:
         reward_model.save()
         print("Trained reward model is saved.")
 

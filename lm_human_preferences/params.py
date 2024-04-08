@@ -15,6 +15,10 @@ if 'cuda' in device_type:
     torch.backends.cuda.matmul.allow_tf32 = True  # faster with negligible loss of accuracy
     torch.backends.cudnn.allow_tf32 = True
 
+world_size: int = int(os.environ.get('WORLD_SIZE', 1))
+ddp_localrank: int = int(os.environ.get('LOCAL_RANK', 0))  # GPU local id [0, nproc-per-node - 1]
+master_process: bool = int(os.environ.get('RANK', 0)) == 0  # master does logging, save checkpoint.
+
 
 @dataclass
 class LabelHParams(hyperparams.HParams):
@@ -40,8 +44,6 @@ class RunHParams(hyperparams.HParams):
     # envs are set by torchrun. https://pytorch.org/docs/stable/elastic/run.html#environment-variables
     ddp: bool = int(os.environ.get('RANK', -1)) != -1  # is this a ddp run?
     ddp_backend: str = 'nccl' if 'cuda' in device_type else 'gloo'  # 'nccl', 'gloo', etc. Typically `nccl` for GPU, `gloo` for CPU.
-    ddp_localrank: int = int(os.environ.get('LOCAL_RANK', 0))  # GPU local id [0, nproc-per-node - 1]
-    master_process: bool = not ddp or int(os.environ.get('RANK')) == 0  # master does logging, save checkpoint.
 
     device: str = f'cuda:{ddp_localrank}' if ddp else device_type  # 'cpu', 'cuda', 'cuda:0', 'cuda:1', etc.
     ckpt: str = '124M_ckpt.pt'  # language model checkpoint
@@ -95,7 +97,7 @@ class TrainRewardParams(hyperparams.HParams):
     lr: float = 5e-5
     grad_clip = 1.0
 
-    rollout_batch_size: int = 64  # same as batch_size, this is also global
+    rollout_batch_size: int = 64  # global, same as batch_size
     normalize_samples: int = 0  # Samples used to estimate reward mean and std
     debug_normalize: int = 0  # Samples used to check that normalization worked
     # Whether, before training, to normalize the rewards on the policy to the scales on the training buffer.
@@ -134,8 +136,8 @@ class RewardHParams(hyperparams.HParams):
 @dataclass
 class PpoHParams(hyperparams.HParams):
     total_episodes: int = 2000000
-    batch_size: int = 64
-    nminibatches: int = 8  # increase to 8 since we train on a single GPU
+    batch_size: int = 64  # global batch size
+    nminibatches: int = 4  # increase to 4 since we train on dual GPUs
     noptepochs: int = 4  # each batch is trained this number of times
 
     lr: float = 5e-6

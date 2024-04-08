@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import time
 from contextlib import nullcontext
 from pathlib import Path
@@ -11,7 +10,7 @@ import tqdm
 import wandb
 from torch.distributed import destroy_process_group
 
-from lm_human_preferences import lm_tasks
+from lm_human_preferences import lm_tasks, params
 from lm_human_preferences.language import trained_models
 from lm_human_preferences.params import TrainPolicyParams, TaskHParams, AdaptiveKLParams
 from lm_human_preferences.policy import Policy
@@ -112,7 +111,9 @@ class PPOTrainer():
             return rewards, non_score_reward, self.kl_ctl.value
         self.compute_rewards = compute_rewards
 
-        minibatch_size = utils.exact_div(hparams.ppo.batch_size, hparams.ppo.nminibatches)
+        # per rank sizes
+        per_rank_rollout_batch_size = utils.exact_div(hparams.ppo.batch_size, params.world_size)
+        per_rank_minibatch_size = utils.exact_div(per_rank_rollout_batch_size, hparams.ppo.nminibatches)
 
         def train(global_step, rollouts):
             # update learning rate for every step
@@ -124,9 +125,9 @@ class PPOTrainer():
             # Do multiple epochs of PPO training, with a fresh random shuffle in each epoch
             stat_list = []
             for ppo_epoch_idx in range(hparams.ppo.noptepochs):
-                order = torch.randperm(hparams.ppo.batch_size)
-                for mb_start in range(0, hparams.ppo.batch_size, minibatch_size):
-                    mb_data = {k: v[order[mb_start: mb_start+minibatch_size]]
+                order = torch.randperm(per_rank_rollout_batch_size)  # also equals rollouts.shape[0]
+                for mb_start in range(0, per_rank_rollout_batch_size, per_rank_minibatch_size):
+                    mb_data = {k: v[order[mb_start: mb_start+per_rank_minibatch_size]]
                                for k, v in rollouts.items()}
 
                     with self.run_ctx:
@@ -189,7 +190,7 @@ class PPOTrainer():
         """ Like one step in environment in RL"""
         step_started_at = time.time()
 
-        queries = self.sample_queries()  # shape=(ppo.batch_size, task.query_length). input s
+        queries = self.sample_queries()  # shape=(ppo.batch_size // world_size, task.query_length). input s
         with torch.no_grad():
             with self.run_ctx:
                 rollouts = self.policy.respond(queries, length=self.hparams.task.response_length)  # v(s), next_s, logP(a)
@@ -338,7 +339,7 @@ def log_samples(encoder, hparams: TrainPolicyParams, to_print: dict):
 
 def train(hparams: TrainPolicyParams):
 
-    seed = 1337 + hparams.run.seed + hparams.run.ddp_localrank
+    seed = 1337 + hparams.run.seed + params.ddp_localrank
     torch.manual_seed(seed)
     np.random.seed(seed)
 
@@ -346,7 +347,8 @@ def train(hparams: TrainPolicyParams):
     assert save_dir is not None, "save_dir cannot be None!"
     assert Path(hparams.rewards.trained_model).is_file(), "Reward checkpoint does not exist. Please train reward first."
 
-    hyperparams.dump(hparams)
+    if params.master_process:
+        hyperparams.dump(hparams)
 
     m = trained_models.TrainedModel(hparams.task.policy.initial_model, run_hparams=hparams.run)
     encoder = m.encoding.get_encoder()
@@ -373,11 +375,12 @@ def train(hparams: TrainPolicyParams):
         temperature=hparams.task.policy.temperature)
     policy.train()
 
+    query_batch_size = utils.exact_div(hparams.ppo.batch_size, params.world_size)
     query_sampler = lm_tasks.make_query_sampler(
-        hparams=hparams.task, encoder=encoder, batch_size=hparams.ppo.batch_size, device=hparams.run.device
+        hparams=hparams.task, encoder=encoder, batch_size=query_batch_size, device=hparams.run.device
     )
 
-    minibatch_size = utils.exact_div(hparams.ppo.batch_size, hparams.ppo.nminibatches)
+    minibatch_size = utils.exact_div(hparams.ppo.batch_size, hparams.ppo.nminibatches * params.world_size)
     if hparams.ppo.whiten_rewards:
         assert minibatch_size >= 8, \
             f"Per-rank minibatch size {minibatch_size} is insufficient for whitening"
@@ -395,7 +398,7 @@ def train(hparams: TrainPolicyParams):
        for global_step in tqdm.trange(nupdates(hparams)):
             stats, to_print = ppo_trainer.step(global_step)
 
-            if hparams.run.master_process:
+            if params.master_process:
                 if hparams.run.wandb_log and global_step % hparams.run.log_interval == 0:
                     wandb.log(stats)  #TODO: review
                     log_samples(encoder, hparams, to_print)
@@ -404,7 +407,7 @@ def train(hparams: TrainPolicyParams):
                     policy.save()
 
     finally:
-        if hparams.run.master_process:
+        if params.master_process:
             policy.save()
 
         if hparams.run.ddp:

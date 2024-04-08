@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from torch.nn.parallel import DistributedDataParallel
 
+from lm_human_preferences import params
 from lm_human_preferences.language import encodings, gpt
 from lm_human_preferences.params import RunHParams
 
@@ -25,7 +26,6 @@ class TrainedModel:
         self.output_ckpt = run_hparams.output_ckpt
         self.device = run_hparams.device
         self.ddp = run_hparams.ddp
-        self.localrank = run_hparams.ddp_localrank
 
         if initial_model == 'test':
             self.encoding = encodings.Test
@@ -101,7 +101,7 @@ class TrainedModel:
 
         model.to(self.device)
         if self.ddp:
-            model = DistributedDataParallel(model, device_ids=[self.localrank])
+            model = DistributedDataParallel(model, device_ids=[params.ddp_localrank])
         #model = torch.compile(model)  # # use PyTorch 2.0 to compile the model to be faster. not compatible with ddp.
 
         return model, model_args, checkpoint
