@@ -29,9 +29,6 @@ class Policy(nn.Module):
         self.lm_model, self.lm_params, *_ = self.trained_model.init_model('policy')  # pre-trained language model
         self.model = self.lm_model.module if self.trained_model.ddp else self.lm_model
 
-        # Adjust this number to avoid OutOfMemoryError.
-        self.micro_rollout_batch_size = -1  # make sure gradients not needed when use
-
     def forward(self, tokens):
         lm_output = self.lm_model(tokens, padding_token=self.encoder.padding_token)
         # need to slice logits since we don't want to generate special tokens
@@ -57,41 +54,34 @@ class Policy(nn.Module):
         """
         beta = 1 / torch.max(torch.as_tensor([self.temperature, 1e-10], dtype=torch.float32, device=self.device))
 
-        r = {'responses': [], 'logprobs': [], 'values': []}
-        chunks = context.split(self.micro_rollout_batch_size) \
-            if 0 < self.micro_rollout_batch_size < context.shape[0] else (context,)
-        for mc in chunks:
-            log_probs = []  # each item.shape=(b,). where b=mc.shape[0]
-            values = []  # each item.shape=(b,)
-            for _ in range(length):
-                # crop context if it's too long
-                context_cond = mc if mc.size(1) <= self.lm_params.n_ctx else mc[:, -self.lm_params.n_ctx:]
-                result = self(context_cond)
-                logits = result['logits'][:, -1, :] * beta  # shape=(b, n_vocab)
-                values.append(result['values'][:, -1])  # use last token's value
-                # optionally crop the logits to only the top k options
-                if top_k != 0:
-                    v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                    logits[logits < v[:, [-1]]] = -float('Inf')
-                if top_p != 1.0:
-                    logits = utils.take_top_p_logits(logits, top_p)
+        log_probs = []  # each item.shape=(b,). where b=context.shape[0]
+        values = []  # each item.shape=(b,)
+        for _ in range(length):
+            # crop context if it's too long
+            context_cond = context[:, -self.lm_params.n_ctx:]
+            result = self(context_cond)
+            logits = result['logits'][:, -1, :] * beta  # shape=(b, n_vocab)
+            values.append(result['values'][:, -1])  # shape=(b,). use last token's value
+            # optionally crop the logits to only the top k options
+            if top_k != 0:
+                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                logits[logits < v[:, [-1]]] = -float('Inf')
+            if top_p != 1.0:
+                logits = utils.take_top_p_logits(logits, top_p)
 
-                # apply softmax to convert logits to (normalized) probabilities
-                dist = distributions.Categorical(logits=logits)
-                # sample from the distribution
-                next_token = dist.sample()  # shape=(b,)
-                logp = -F.cross_entropy(logits, next_token, reduction='none')  # shape=(b,) where b=mc.shape[0]
-                log_probs.append(logp)
-                # append sampled index to the running sequence and continue
-                mc = torch.cat((mc, next_token[..., None]), dim=1)
-            r['responses'].append(mc)  # shape=(b, context.shape[1] + length) where b=mc.shape[0]
-            r['logprobs'].append(torch.stack(log_probs, dim=1))  # shape=(b, length)
-            r['values'].append(torch.stack(values, dim=1))  # shape=(b, length)
+            # apply softmax to convert logits to (normalized) probabilities
+            dist = distributions.Categorical(logits=logits)
+            # sample from the distribution
+            next_token = dist.sample()  # shape=(b,)
+            logp = -F.cross_entropy(logits, next_token, reduction='none')  # shape=(b,) where b=context.shape[0]
+            log_probs.append(logp)
+            # append sampled index to the running sequence and continue
+            context = torch.cat((context, next_token[..., None]), dim=1)
 
         return {
-            'responses': torch.cat(r['responses']),  # shape=(b, context.shape[1] + length) where b=context.shape[0]
-            'logprobs': torch.cat(r['logprobs']),  # shape=(b, length)
-            'values': torch.cat(r['values'])  # shape=(b, length)
+            'responses': context,  # shape=(b, context.shape[1] + length) where b=context.shape[0]
+            'logprobs': torch.stack(log_probs, dim=1),  # shape=(b, length)
+            'values': torch.stack(values, dim=1)  # shape=(b, length)
         }
 
     def analyze_responses(self, queries: torch.Tensor, responses: torch.Tensor):

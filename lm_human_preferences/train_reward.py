@@ -91,8 +91,13 @@ class RewardModelTrainer:
             def stats(query_responses):
                 """return mean and std of rewards of query_responses. """
                 with self.run_ctx:
-                    rewards = torch.cat([self.reward_model.get_rewards(qs, rs) for qs, rs in query_responses], dim=0)
-
+                    rewards = []
+                    chunk_size = query_responses[0][0].shape[0] // self.hparams.run.input_splits_reward
+                    for qs, rs in query_responses:
+                        rewards.append(
+                            torch.cat([self.reward_model.get_rewards(q, r) for q, r in zip(qs.split(chunk_size), rs.split(chunk_size))])
+                        )
+                rewards = torch.cat(rewards)
                 assert len(rewards.shape) == 1, f'{rewards.shape}'
                 means, sqr_means = rewards.mean(), rewards.square().mean()
                 stds = torch.sqrt(sqr_means - means ** 2)  # Var(x) = E(x^2) - (E[x]^2)
@@ -121,9 +126,10 @@ class RewardModelTrainer:
             @torch.no_grad()
             def sample_policy_batch():
                 queries = query_sampler()
+                chunks = queries.split(queries.shape[0] // self.hparams.run.input_splits_policy)
                 with self.run_ctx:
-                    responses = policy.respond(
-                        queries=queries, length=hparams.task.response_length)['responses']
+                    responses = torch.cat([policy.respond(queries=q, length=hparams.task.response_length)['responses']
+                                           for q in chunks])
                 return queries, responses
 
             def sample_policy_responses(n_samples):
@@ -237,15 +243,12 @@ class RewardModelTrainer:
 
 def train(hparams: TrainRewardParams):
 
-    seed = 1337 + hparams.run.seed
+    seed = 1337 + hparams.run.seed + hparams.run.ddp_localrank
     torch.manual_seed(seed)
     np.random.seed(seed)
 
     if hparams.run.master_process:
         hyperparams.dump(hparams)  # output hparams to out (default to stdout)
-
-        # download labels
-        azure.download_file_cached(hparams.labels.source, hparams.run.labels_dir)
 
     m = trained_models.TrainedModel(hparams.task.policy.initial_model, run_hparams=hparams.run)
     encoder = m.encoding.get_encoder()

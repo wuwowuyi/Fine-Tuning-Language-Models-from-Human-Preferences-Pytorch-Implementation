@@ -26,25 +26,12 @@ class RewardModel(nn.Module):
         self.reward_gain = ckpt.pop('gain') if 'gain' in ckpt else nn.Parameter(torch.ones((), device=self.device))
         self.reward_bias = ckpt.pop('bias') if 'bias' in ckpt else nn.Parameter(torch.zeros((), device=self.device))
 
-        # Adjust this number to avoid OutOfMemoryError.
-        self.micro_batch_size = -1  # make sure gradients not needed when use. -1 means do not use.
-
     def forward(self, tokens):
         """Only care the reward for the entire response, not per step.
         Since the reward is trained on scores for the entire response.
          """
-        if 0 < self.micro_batch_size < tokens.shape[0] and tokens.shape[0] % self.micro_batch_size == 0:
-            # To avoid OutOfMemoryError. Make sure gradients are not needed in this case !
-            rewards = []
-            for t in torch.split(tokens, self.micro_batch_size):
-                lm_output = self.lm_model(t, padding_token=self.padding_token)
-                r = lm_output['hp'][:, -1]  # shape=(b,) where b=micro_batch_size
-                rewards.append(r)
-            reward = torch.cat(rewards)
-        else:
-            lm_output = self.lm_model(tokens, padding_token=self.padding_token)
-            reward = lm_output['hp'][:, -1]  # shape=(b,) where b=tokens.shape[0]
-
+        lm_output = self.lm_model(tokens, padding_token=self.padding_token)
+        reward = lm_output['hp'][:, -1]  # shape=(b,) where b=tokens.shape[0]
         return self.reward_gain * reward + self.reward_bias  # shape=(b, ) where b=tokens.shape[0]
 
     @torch.no_grad()

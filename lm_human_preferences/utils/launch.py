@@ -7,7 +7,7 @@ import torch
 import wandb
 from torch.distributed import init_process_group
 
-from lm_human_preferences.utils import hyperparams
+from lm_human_preferences.utils import hyperparams, azure
 
 
 # def launch(name, f, *, namespace='safety', mode='local') -> None:
@@ -55,6 +55,17 @@ def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=Fa
             hyperparams.dump(hparams)  # output hparams to out (default to stdout)
         else:
             job_name = (name + '/' + '-'.join(descriptors)).rstrip('/')
+            hparams.run.save_dir = Path(hparams.run.save_dir) / job_name
+            hparams.run.labels_dir = Path(hparams.run.labels_dir)
+            if hparams.run.master_process:
+                Path.mkdir(hparams.run.save_dir, exist_ok=True)
+                Path.mkdir(hparams.run.labels_dir, exist_ok=True)
+                # download labels
+                azure.download_file_cached(hparams.labels.source, hparams.run.labels_dir)
+
+                if hparams.run.wandb_log:
+                    wandb_run_name = f'{job_name}-' + str(time.time())
+                    wandb.init(project=hparams.run.wandb_project, name=wandb_run_name, config=hparams.to_nested_dict())
 
             # setup ddp
             if hparams.run.ddp:
@@ -62,15 +73,6 @@ def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=Fa
                 torch.cuda.set_device(hparams.run.device)  # set default device for current process
             else:
                 print('\nDDP is not enabled.\n')
-
-            hparams.run.save_dir = Path(hparams.run.save_dir) / job_name
-            hparams.run.labels_dir = Path(hparams.run.labels_dir)
-            if hparams.run.master_process:
-                Path.mkdir(hparams.run.save_dir, exist_ok=True)
-                Path.mkdir(hparams.run.labels_dir, exist_ok=True)
-                if hparams.run.wandb_log:
-                    wandb_run_name = f'{job_name}-' + str(time.time())
-                    wandb.init(project=hparams.run.wandb_project, name=wandb_run_name, config=hparams.to_nested_dict())
 
             fn(hparams)
 

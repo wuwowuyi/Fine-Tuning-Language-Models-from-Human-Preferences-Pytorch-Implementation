@@ -25,7 +25,7 @@ class LabelHParams(hyperparams.HParams):
 
 @dataclass
 class RunHParams(hyperparams.HParams):
-    seed: int = int(os.environ.get('RANK', 0))
+    seed: int = 1
     log_interval: int = 100
     save_interval: int = 1000
 
@@ -39,7 +39,7 @@ class RunHParams(hyperparams.HParams):
 
     # envs are set by torchrun. https://pytorch.org/docs/stable/elastic/run.html#environment-variables
     ddp: bool = int(os.environ.get('RANK', -1)) != -1  # is this a ddp run?
-    ddp_backend: str = 'nccl'  # 'nccl', 'gloo', etc. Typically `nccl` for GPU, `gloo` for CPU.
+    ddp_backend: str = 'nccl' if 'cuda' in device_type else 'gloo'  # 'nccl', 'gloo', etc. Typically `nccl` for GPU, `gloo` for CPU.
     ddp_localrank: int = int(os.environ.get('LOCAL_RANK', 0))  # GPU local id [0, nproc-per-node - 1]
     master_process: bool = not ddp or int(os.environ.get('RANK')) == 0  # master does logging, save checkpoint.
 
@@ -50,6 +50,10 @@ class RunHParams(hyperparams.HParams):
     # wandb logging
     wandb_log: bool = True
     wandb_project: str = 'lm_human_preference'
+
+    # increase these two numbers to avoid OutOfMemory for non-gradient computation
+    input_splits_policy: int = 1
+    input_splits_reward: int = 1
 
 
 @dataclass

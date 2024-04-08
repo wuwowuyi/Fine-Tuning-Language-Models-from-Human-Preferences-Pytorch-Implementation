@@ -338,7 +338,7 @@ def log_samples(encoder, hparams: TrainPolicyParams, to_print: dict):
 
 def train(hparams: TrainPolicyParams):
 
-    seed = 1337 + hparams.run.seed
+    seed = 1337 + hparams.run.seed + hparams.run.ddp_localrank
     torch.manual_seed(seed)
     np.random.seed(seed)
 
