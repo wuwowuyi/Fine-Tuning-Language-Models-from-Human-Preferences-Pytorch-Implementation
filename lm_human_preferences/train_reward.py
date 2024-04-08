@@ -241,7 +241,11 @@ def train(hparams: TrainRewardParams):
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    hyperparams.dump(hparams)  # output hparams to out (default to stdout)
+    if hparams.run.master_process:
+        hyperparams.dump(hparams)  # output hparams to out (default to stdout)
+
+        # download labels
+        azure.download_file_cached(hparams.labels.source, hparams.run.labels_dir)
 
     m = trained_models.TrainedModel(hparams.task.policy.initial_model, run_hparams=hparams.run)
     encoder = m.encoding.get_encoder()
@@ -285,7 +289,9 @@ def train(hparams: TrainRewardParams):
 
     reward_trainer.train()
 
-    reward_model.save()
+    if hparams.run.master_process:
+        reward_model.save()
+        print("Trained reward model is saved.")
 
     if hparams.run.ddp:
         destroy_process_group()

@@ -25,7 +25,7 @@ class LabelHParams(hyperparams.HParams):
 
 @dataclass
 class RunHParams(hyperparams.HParams):
-    seed: Optional[int] = None
+    seed: int = int(os.environ.get('RANK', 0))
     log_interval: int = 100
     save_interval: int = 1000
 
@@ -87,7 +87,7 @@ class TrainRewardParams(hyperparams.HParams):
     labels: LabelHParams = field(default_factory=LabelHParams)
 
     batch_size: int = 40  # micro_batch_size = batch_size / (gradient_accumulation_steps * world_size)
-    gradient_accumulation_steps: int = 1  # increase to avoid OutOfMemory Error
+    gradient_accumulation_steps: int = 1  # we may want to change this number with world_size
     lr: float = 5e-5
     grad_clip = 1.0
 

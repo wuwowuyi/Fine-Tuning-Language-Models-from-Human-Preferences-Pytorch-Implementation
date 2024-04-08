@@ -59,14 +59,7 @@ def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=Fa
             # setup ddp
             if hparams.run.ddp:
                 init_process_group(backend=hparams.run.ddp_backend)  # default to nccl for GPU training
-                hparams.run.seed = int(os.environ['RANK'])  # each process gets a different seed
                 torch.cuda.set_device(hparams.run.device)  # set default device for current process
-
-                # down the desired gradient accumulation iterations per process proportionally
-                ddp_world_size = int(os.environ['WORLD_SIZE'])  # total processes
-                if hparams.gradient_accumulation_steps > 1:
-                    assert hparams.gradient_accumulation_steps % ddp_world_size == 0
-                    hparams.gradient_accumulation_steps //= ddp_world_size
             else:
                 print('\nDDP is not enabled.\n')
 

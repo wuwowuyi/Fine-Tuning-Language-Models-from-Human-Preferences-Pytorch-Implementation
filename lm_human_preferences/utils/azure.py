@@ -25,6 +25,7 @@ def download_file_cached(url, cache_dir='/tmp/azure-cache'):
     sentinel = local_path + '.SYNCED'
     if not os.path.exists(local_path):
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        print('Downloading training labels for reward model')
         r = requests.get(url, stream=True)
         with open(local_path, 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192 * 8):

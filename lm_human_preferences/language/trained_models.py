@@ -100,9 +100,9 @@ class TrainedModel:
                 torch.nn.init.normal_(model.hp_head.weight, std=1 / np.sqrt(model_args.n_embd + 1))
 
         model.to(self.device)
-        model = torch.compile(model)  # # use PyTorch 2.0 to compile the model to be faster
         if self.ddp:
             model = DistributedDataParallel(model, device_ids=[self.localrank])
+        #model = torch.compile(model)  # # use PyTorch 2.0 to compile the model to be faster. not compatible with ddp.
 
         return model, model_args, checkpoint
 
