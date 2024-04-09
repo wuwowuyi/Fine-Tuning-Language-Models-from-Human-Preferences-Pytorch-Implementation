@@ -60,8 +60,6 @@ def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=Fa
             if params.master_process:
                 Path.mkdir(hparams.run.save_dir, exist_ok=True)
                 Path.mkdir(hparams.run.labels_dir, exist_ok=True)
-                # download labels
-                azure.download_file_cached(hparams.labels.source, hparams.run.labels_dir)
 
                 if hparams.run.wandb_log:
                     wandb_run_name = f'{job_name}-' + str(time.time())

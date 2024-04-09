@@ -248,6 +248,8 @@ def train(hparams: TrainRewardParams):
 
     if params.master_process:
         hyperparams.dump(hparams)  # output hparams to out (default to stdout)
+        # download labels
+        azure.download_file_cached(hparams.labels.source, hparams.run.labels_dir)
 
     m = trained_models.TrainedModel(hparams.task.policy.initial_model, run_hparams=hparams.run)
     encoder = m.encoding.get_encoder()
