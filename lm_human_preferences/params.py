@@ -30,7 +30,7 @@ class LabelHParams(hyperparams.HParams):
 @dataclass
 class RunHParams(hyperparams.HParams):
     seed: int = 1
-    log_interval: int = 100
+    log_interval: int = 10
     save_interval: int = 1000
 
     # We always save and load from a local dir.

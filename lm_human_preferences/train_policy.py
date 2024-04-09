@@ -190,11 +190,11 @@ class PPOTrainer():
         """ Like one step in environment in RL"""
         step_started_at = time.time()
 
-        queries = self.sample_queries()  # shape=(ppo.batch_size // world_size, task.query_length). input s
+        queries = self.sample_queries()  # shape=(ppo.batch_size // world_size, task.query_length). like input s to environment in RL.
         with torch.no_grad():
             with self.run_ctx:
                 rollouts = self.policy.respond(queries, length=self.hparams.task.response_length)  # v(s), next_s, logP(a)
-                responses = rollouts['responses']
+                responses = rollouts['responses']  # v(s)
                 logprobs = rollouts['logprobs']
                 rollouts['queries'] = queries
 
@@ -228,7 +228,7 @@ class PPOTrainer():
         step_time = time.time() - step_started_at
         eps_per_second = float(self.hparams.ppo.batch_size) / step_time
 
-        if global_step % 100 == 0:
+        if params.master_process and global_step % 10 == 0:
             print(f"[ppo_step {global_step}] step_time={step_time:.2f}s, eps/s={eps_per_second:.2f}")
         return stats, to_print
 
@@ -329,12 +329,14 @@ def log_samples(encoder, hparams: TrainPolicyParams, to_print: dict):
     for i in range(min(3, len(queries))):
         sample_kl = np.sum(logprobs[i] - ref_logprobs[i])
         wandb.log({
-            "queries": str(encoder.decode(queries[i][:hparams.task.query_length]).replace("\n", "⏎")),
-            "responses": str(encoder.decode(responses[i]).replace("\n", "⏎")),
             "score": scores[i],
             "kl": sample_kl,
             "total": scores[i] - hparams.rewards.kl_coef * sample_kl
         })
+        q = str(encoder.decode(queries[i][:hparams.task.query_length]).replace("\n", "⏎"))
+        print(f'queries: {q}')
+        r = str(encoder.decode(responses[i]).replace("\n", "⏎"))
+        print(f'responses: {r}')
 
 
 def train(hparams: TrainPolicyParams):
