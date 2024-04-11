@@ -1,12 +1,9 @@
-import os
 import random
 from pathlib import Path
 
 import numpy as np
-import torch
 
-from lm_human_preferences.datasets import books, cnndm
-from lm_human_preferences.datasets.tldr import tldr_generator
+from lm_human_preferences.datasets import books, cnndm, tldr
 
 _registry: dict[str, "Dataset"] = {}
 
@@ -15,6 +12,7 @@ class Dataset:
     datasets_names = {
         'books': books.dataset_name,
         'cnndm': cnndm.dataset_name,
+        'tldr': tldr.dataset_name
     }
 
     def __init__(
@@ -98,7 +96,7 @@ CnnDm = Dataset(
 
 Tldr = Dataset(
     "tldr",
-    generator=tldr_generator,
+    generator=tldr.get_batch,
 )
 
 Books = Dataset(

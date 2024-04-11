@@ -47,7 +47,7 @@ def prepare_books():
     )
 
     for split, dset in tokenized.items():
-        arr_len = np.sum(dset['len'], dtype=np.uint64)
+        arr_len = np.sum(dset['len'], dtype=np.int64)  # int64 matches python int.
         filename = os.path.join(os.path.dirname(__file__), f'{dataset_name}_{split}.bin')
         dtype = np.uint16  # (can do since enc.max_token_value == 50256 is < 2**16)
         arr = np.memmap(filename, dtype=dtype, mode='w+', shape=(arr_len,))
