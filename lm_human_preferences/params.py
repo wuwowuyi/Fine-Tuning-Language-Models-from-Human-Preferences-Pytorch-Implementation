@@ -31,7 +31,7 @@ class LabelHParams(hyperparams.HParams):
 class RunHParams(hyperparams.HParams):
     seed: int = 1
     log_interval: int = 10
-    save_interval: int = 1000
+    save_interval: int = 300
 
     # We always save and load from a local dir.
     # save_dir is for a particular job

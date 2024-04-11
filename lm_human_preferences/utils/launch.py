@@ -5,6 +5,7 @@ import fire
 import torch
 import wandb
 from torch.distributed import init_process_group
+from torch.distributed.elastic.multiprocessing.errors import record
 
 from lm_human_preferences import params
 from lm_human_preferences.utils import hyperparams, azure
@@ -74,7 +75,7 @@ def launch_trials(name, fn, trials, hparam_class, extra_hparams=None, dry_run=Fa
 
             fn(hparams)
 
-
+@record
 def main(commands_dict):
     """Similar to fire.Fire, but with support for multiple commands without having a class."""
     class _Commands:
