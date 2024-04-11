@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 from typing import Union
 
@@ -37,7 +38,7 @@ class TrainedModel:
         p = self.savedir / model_for
         if not p.exists():
             p.mkdir()
-        return p / self.output_ckpt
+        return p / f"{int(time.time())}-{self.output_ckpt}"
 
     def _checkpoint(self, model_for: str):
         """
