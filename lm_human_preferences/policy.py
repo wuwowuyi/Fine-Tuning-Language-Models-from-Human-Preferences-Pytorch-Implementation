@@ -114,9 +114,9 @@ class Policy(nn.Module):
         device_type = 'cuda' if 'cuda' in self.device else self.device
         self.optimizer = self.model.configure_optimizers(hparams.ppo.lr, device_type)
         if self.optimizer_state_dict:
-            self.optimizer.load_state_dict(self.optimzer_state_dict)
+            self.optimizer.load_state_dict(self.optimizer_state_dict)
             self.optimizer_state_dict = None  # release memory
-        return self.optimzer
+        return self.optimizer
 
     def save(self, step, kl_value):
         ckpt = {
