@@ -251,7 +251,7 @@ def train(hparams: TrainRewardParams):
         # download labels
         azure.download_file_cached(hparams.labels.source, hparams.run.labels_dir)
 
-    m = trained_models.TrainedModel(hparams.task.policy.initial_model, run_hparams=hparams.run)
+    m = trained_models.TrainedModel(None, run_hparams=hparams.run)
     encoder = m.encoding.get_encoder()
 
     # only used as a language model for sampling responses given context

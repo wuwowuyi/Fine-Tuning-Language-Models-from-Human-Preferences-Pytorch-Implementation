@@ -27,6 +27,9 @@ class TrainedModel:
         self.device = run_hparams.device
         self.ddp = run_hparams.ddp
 
+        self.kl_ctl_value = None  # value loaded from checkpoint
+        self.step = 0  # global_step loaded from checkpoint
+
         if initial_model == 'test':
             self.encoding = encodings.Test
         else:
@@ -94,10 +97,16 @@ class TrainedModel:
 
         # overwrite default init of the head layer for policy/reward
         if not self.initial_model:
+            # model is initialized from pre-trained language model
+            # we need to initialize the linear layer on top of transformers
             if model_for == 'policy':
                 torch.nn.init.zeros_(model.hp_head.weight)  # TODO: to review. zero initial value?
             else:  # reward
                 torch.nn.init.normal_(model.hp_head.weight, std=1 / np.sqrt(model_args.n_embd + 1))
+        else:
+            if model_for == 'policy':
+                self.kl_ctl_value = checkpoint.pop('kl_ctl_value')
+                self.step = checkpoint.pop('step', 0)
 
         model.to(self.device)
         if self.ddp:

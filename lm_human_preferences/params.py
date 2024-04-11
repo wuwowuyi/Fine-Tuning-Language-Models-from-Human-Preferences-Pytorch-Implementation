@@ -61,7 +61,7 @@ class RunHParams(hyperparams.HParams):
 @dataclass
 class PolicyHParams(hyperparams.HParams):
     temperature: float = 1.0  # lower this number to improve sample quality.
-    initial_model: Optional[str] = None
+    initial_model: Optional[str] = None  # policy checkpoint when resume training policy. not for ref_policy.
 
 
 @dataclass

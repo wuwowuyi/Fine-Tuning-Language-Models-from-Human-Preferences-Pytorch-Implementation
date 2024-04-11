@@ -341,6 +341,7 @@ def log_samples(encoder, hparams: TrainPolicyParams, to_print: dict):
 
 def train(hparams: TrainPolicyParams):
 
+    # NOTE: Feed a different seed on resuming training otherwise same queries samples are generated!
     seed = 1337 + hparams.run.seed + params.ddp_localrank
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -352,7 +353,7 @@ def train(hparams: TrainPolicyParams):
     if params.master_process:
         hyperparams.dump(hparams)
 
-    m = trained_models.TrainedModel(hparams.task.policy.initial_model, run_hparams=hparams.run)
+    m = trained_models.TrainedModel(None, run_hparams=hparams.run)
     encoder = m.encoding.get_encoder()
 
     # if save_dir:
@@ -371,11 +372,17 @@ def train(hparams: TrainPolicyParams):
         temperature=hparams.task.policy.temperature)
     ref_policy.train()  # we don't train ref_policy, setting to train mode so it behaves identically to policy
 
+    m.initial_model = hparams.task.policy.initial_model
     policy = Policy(
         m, encoder,
         embed_queries=lm_tasks.query_formatter(hparams.task, encoder),
         temperature=hparams.task.policy.temperature)
     policy.train()
+
+    # load resume training values.
+    start_step = m.step + 1
+    if m.kl_ctl_value:
+        hparams.rewards.kl_coef = m.kl_ctl_value
 
     query_batch_size = utils.exact_div(hparams.ppo.batch_size, params.world_size)
     query_sampler = lm_tasks.make_query_sampler(
@@ -396,8 +403,9 @@ def train(hparams: TrainPolicyParams):
         score_fn=make_score_fn(hparams.task, score_model=score_model),
         hparams=hparams)
 
+    print(f"start training from step {start_step}")
     try:
-       for global_step in tqdm.trange(nupdates(hparams)):
+       for global_step in tqdm.trange(start_step, nupdates(hparams)):
             stats, to_print = ppo_trainer.step(global_step)
 
             if params.master_process:
@@ -406,11 +414,10 @@ def train(hparams: TrainPolicyParams):
                     log_samples(encoder, hparams, to_print)
 
                 if global_step % hparams.run.save_interval == 0:
-                    policy.save()
-
+                    policy.save(global_step, ppo_trainer.kl_ctl.value)
     finally:
         if params.master_process:
-            policy.save()
+            policy.save(global_step, ppo_trainer.kl_ctl.value)
 
         if hparams.run.ddp:
             destroy_process_group()

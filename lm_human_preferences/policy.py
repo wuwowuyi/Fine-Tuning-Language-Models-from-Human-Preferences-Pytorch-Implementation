@@ -26,7 +26,11 @@ class Policy(nn.Module):
         self.temperature = temperature  # used for sampling
 
         # model has two heads, the language model head (for policy action) and value head for state value V(s).
-        self.lm_model, self.lm_params, *_ = self.trained_model.init_model('policy')  # pre-trained language model
+        self.lm_model, self.lm_params, checkpoint = self.trained_model.init_model('policy')  # pre-trained language model
+        self.optimizer_state_dict = checkpoint.pop('optimizer') if 'optimizer' in checkpoint else None
+        self.optimizer = None
+
+        # for ddp training
         self.model = self.lm_model.module if self.trained_model.ddp else self.lm_model
 
     def forward(self, tokens):
@@ -91,7 +95,7 @@ class Policy(nn.Module):
         tokens = torch.cat((contexts, responses), dim=1)  # shape=(batch, context_length + length)
         result = self(tokens)
 
-        # context_length-1 is the first token of response
+        # logits at context_length-1 were used to sample the first token of response
         logits = result['logits'][:, context_length-1:-1]  # shape=(batch, length, n_vocab)
         beta = 1 / torch.max(torch.as_tensor([self.temperature, 1e-10], dtype=torch.float32, device=self.device))
         logits *= beta
@@ -108,11 +112,18 @@ class Policy(nn.Module):
 
     def configure_optimizers(self, hparams: TrainPolicyParams):
         device_type = 'cuda' if 'cuda' in self.device else self.device
-        return self.model.configure_optimizers(hparams.ppo.lr, device_type)
+        self.optimizer = self.model.configure_optimizers(hparams.ppo.lr, device_type)
+        if self.optimizer_state_dict:
+            self.optimizer.load_state_dict(self.optimzer_state_dict)
+            self.optimizer_state_dict = None  # release memory
+        return self.optimzer
 
-    def save(self):
+    def save(self, step, kl_value):
         ckpt = {
             'model': self.model.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+            'step': step,
+            'kl_ctl_value': kl_value
         }
         f = self.trained_model.get_ckpt_filename('policy')
         torch.save(ckpt, f)
