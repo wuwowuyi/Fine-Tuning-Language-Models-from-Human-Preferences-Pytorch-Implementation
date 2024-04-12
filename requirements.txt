@@ -11,4 +11,4 @@ wandb
 tiktoken
 chardet
 tensorflow
-
+pandas
