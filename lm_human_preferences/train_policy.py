@@ -113,7 +113,8 @@ class PPOTrainer():
 
         # per rank sizes
         per_rank_rollout_batch_size = utils.exact_div(hparams.ppo.batch_size, params.world_size)
-        per_rank_minibatch_size = utils.exact_div(per_rank_rollout_batch_size, hparams.ppo.nminibatches)
+        per_rank_minibatch_size = utils.exact_div(per_rank_rollout_batch_size,
+                                                  hparams.ppo.nminibatches * hparams.ppo.gradient_accumulation_steps)
 
         def train(global_step, rollouts):
             # update learning rate for every step
@@ -126,19 +127,27 @@ class PPOTrainer():
             stat_list = []
             for ppo_epoch_idx in range(hparams.ppo.noptepochs):
                 order = torch.randperm(per_rank_rollout_batch_size)  # also equals rollouts.shape[0]
-                for mb_start in range(0, per_rank_rollout_batch_size, per_rank_minibatch_size):
+                for index in range(0, per_rank_rollout_batch_size // per_rank_minibatch_size):
+                    mb_start = index * per_rank_minibatch_size
                     mb_data = {k: v[order[mb_start: mb_start+per_rank_minibatch_size]]
                                for k, v in rollouts.items()}
 
+                    last_micro_step = (index + 1) % self.hparams.ppo.gradient_accumulation_steps == 0
+                    if self.hparams.run.ddp:
+                        # in DDP training we only need to sync gradients at the last micro step.
+                        self.policy.set_grad_sync(last_micro_step)
+
                     with self.run_ctx:
                         ppo_loss, stats = self.loss(mb_data)
+                        ppo_loss /= self.hparams.ppo.gradient_accumulation_steps
 
                     scaler.scale(ppo_loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
-                    optimizer.zero_grad()
 
-                    stat_list.append(to_numpy(stats))
+                    if last_micro_step:
+                        scaler.step(optimizer)
+                        scaler.update()
+                        optimizer.zero_grad()
+                        stat_list.append(to_numpy(stats))
 
             # Collect the stats. (They will be averaged later.)
             return {k: np.stack([s[k] for s in stat_list]) for k in stat_list[0].keys()}
@@ -211,26 +220,29 @@ class PPOTrainer():
         # each step t in rollout has state s_t, next state s_t+1, reward r_t, state value v(s_t), logP(a_t)
         train_stats = self.train(global_step, rollouts=rollouts)
 
-        # now convert everything to numpy for logging
-        scores, logprobs, ref_logprobs, non_score_reward, score_stats, queries, postprocessed_responses = (
-            map(to_numpy, (scores, logprobs, ref_logprobs, non_score_reward, score_stats, queries, postprocessed_responses)))
+        if params.master_process:
+            # now convert everything to numpy for logging
+            scores, logprobs, ref_logprobs, non_score_reward, score_stats, queries, postprocessed_responses = (
+                map(to_numpy, (scores, logprobs, ref_logprobs, non_score_reward, score_stats, queries, postprocessed_responses)))
 
-        stats = self.record_step_stats(
-            scores=scores, logprobs=logprobs, ref_logprobs=ref_logprobs, non_score_reward=non_score_reward,
-            train_stats=train_stats, score_stats=score_stats, kl_coef=kl_coef, global_step=global_step)
+            stats = self.record_step_stats(
+                scores=scores, logprobs=logprobs, ref_logprobs=ref_logprobs, non_score_reward=non_score_reward,
+                train_stats=train_stats, score_stats=score_stats, kl_coef=kl_coef, global_step=global_step)
 
-        self.kl_ctl.update(stats['objective/kl'], self.hparams.ppo.batch_size)
+            self.kl_ctl.update(stats['objective/kl'], self.hparams.ppo.batch_size)
 
-        to_print = dict(queries=queries, responses=postprocessed_responses,
-                        scores=scores, logprobs=logprobs, ref_logprobs=ref_logprobs)
+            to_print = dict(queries=queries, responses=postprocessed_responses,
+                            scores=scores, logprobs=logprobs, ref_logprobs=ref_logprobs)
 
-        # Record profiles of the step times
-        step_time = time.time() - step_started_at
-        eps_per_second = float(self.hparams.ppo.batch_size) / step_time
+            # Record profiles of the step times
+            step_time = time.time() - step_started_at
+            eps_per_second = float(self.hparams.ppo.batch_size) / step_time
 
-        if params.master_process and global_step % 10 == 0:
-            print(f"[ppo_step {global_step}] step_time={step_time:.2f}s, eps/s={eps_per_second:.2f}")
-        return stats, to_print
+            if params.master_process and global_step % 10 == 0:
+                print(f"[ppo_step {global_step}] step_time={step_time:.2f}s, eps/s={eps_per_second:.2f}")
+            return stats, to_print
+        else:
+            return None, None
 
     def loss(self, rollouts):
         values = rollouts['values']  # state values V(s)
@@ -283,17 +295,20 @@ class PPOTrainer():
         loss = pg_loss + self.hparams.ppo.vf_coef * vf_loss
 
         # for debugging/logging
-        entropy = torch.mean(outputs['entropies'])
-        approxkl = .5 * torch.mean(torch.square(logprob - old_logprob))
-        return_var, return_mean = torch.var_mean(returns, dim=list(range(returns.dim())), correction=0)
-        value_var, value_mean = torch.var_mean(values, dim=list(range(values.dim())), correction=0)
-        stats = dict(
-            loss=dict(policy=pg_loss, value=vf_loss, total=loss),
-            policy=dict(entropy=entropy, approxkl=approxkl, clipfrac=pg_clipfrac),
-            returns=dict(mean=return_mean, var=return_var),
-            val=dict(vpred=torch.mean(vpred), error=torch.mean((vpred - returns) ** 2),
-                     clipfrac=vf_clipfrac, mean=value_mean, var=value_var)
-        )
+        if params.master_process:
+            entropy = torch.mean(outputs['entropies'])
+            approxkl = .5 * torch.mean(torch.square(logprob - old_logprob))
+            return_var, return_mean = torch.var_mean(returns, dim=list(range(returns.dim())), correction=0)
+            value_var, value_mean = torch.var_mean(values, dim=list(range(values.dim())), correction=0)
+            stats = dict(
+                loss=dict(policy=pg_loss, value=vf_loss, total=loss),
+                policy=dict(entropy=entropy, approxkl=approxkl, clipfrac=pg_clipfrac),
+                returns=dict(mean=return_mean, var=return_var),
+                val=dict(vpred=torch.mean(vpred), error=torch.mean((vpred - returns) ** 2),
+                         clipfrac=vf_clipfrac, mean=value_mean, var=value_var)
+            )
+        else:
+            stats = {}
         return loss, utils.flatten_dict(stats, sep='/')
 
 
@@ -389,7 +404,8 @@ def train(hparams: TrainPolicyParams):
         hparams=hparams.task, encoder=encoder, batch_size=query_batch_size, device=hparams.run.device
     )
 
-    minibatch_size = utils.exact_div(hparams.ppo.batch_size, hparams.ppo.nminibatches * params.world_size)
+    minibatch_size = utils.exact_div(
+        hparams.ppo.batch_size, hparams.ppo.nminibatches * hparams.ppo.gradient_accumulation_steps * params.world_size)
     if hparams.ppo.whiten_rewards:
         assert minibatch_size >= 8, \
             f"Per-rank minibatch size {minibatch_size} is insufficient for whitening"

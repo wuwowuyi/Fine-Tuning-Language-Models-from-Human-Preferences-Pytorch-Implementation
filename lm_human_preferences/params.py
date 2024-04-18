@@ -140,6 +140,8 @@ class PpoHParams(hyperparams.HParams):
     nminibatches: int = 4  # increase to 4 since we train on dual GPUs
     noptepochs: int = 4  # each batch is trained this number of times
 
+    gradient_accumulation_steps: int = 1  # increase to avoid OutOfMemory Error
+
     lr: float = 5e-6
     vf_coef: float = .1
     cliprange: float = .2
@@ -157,12 +159,10 @@ class TrainPolicyParams(hyperparams.HParams):
     rewards: RewardHParams = field(default_factory=RewardHParams)
     ppo: PpoHParams = field(default_factory=PpoHParams)
 
-    gradient_accumulation_steps: int = 1  # increase to avoid OutOfMemory Error
-
     def validate(self, *, prefix=''):
         super().validate(prefix=prefix)
         # NOTE: must additionally divide by # ranks
-        minibatch_size = utils.exact_div(self.ppo.batch_size, self.ppo.nminibatches)
+        minibatch_size = utils.exact_div(self.ppo.batch_size, self.ppo.nminibatches * self.ppo.gradient_accumulation_steps)
         if self.ppo.whiten_rewards:
             assert minibatch_size >= 8, \
                 f"Minibatch size {minibatch_size} is insufficient for whitening in PPOTrainer.loss"
