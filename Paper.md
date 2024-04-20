@@ -77,7 +77,7 @@ $x$ is sampled from BookCorpus dataset with a length of 32 to 64 tokens, and pol
 #### Mock sentiment task
 Train a reward function $r_s$ by training a classifier (a transformer with 6 layers, 8 attention heads, embed size 512) on a binarized, balanced sumsample of Amazon Review dataset. $r_s(x, y)$ is the logP of a review being positive. (i.e., encourage the policy to generate positive reviews)
 
-![mock sentiment learning curve (KL 8)](static/mock-curves.svg)
+![mock sentiment learning curve (KL 8)](/static/mock-curves.svg)
 where direct means direct RL access to $r_s$.
 
 Because we know the reward function $r_s$, we can also analytically compute the optimal policy. The optimal policy has the form: $\pi_{opt}(y|x) \propto \rho(y|x)e^{r_s/\beta}$
@@ -94,8 +94,11 @@ x is sampled from Bookcorpus, starting and ending with a period. Rejection sampl
 
 We dynamically adjust $\beta$ to obtain a KL of 6 nats for descriptiveness and 10 nats for sentiment.
 ![sentiment compare to ref](/static/sentiment_compare_to_ref.svg)
+
 ![descriptiveness compare to ref](/static/descriptiveness_compare_to_ref.svg)
+
 ![human evaluations for continuations](/static/human%20evaluations%20for%20continuations.png)
+
 
 
 
