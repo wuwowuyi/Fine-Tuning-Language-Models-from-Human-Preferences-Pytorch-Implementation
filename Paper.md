@@ -7,8 +7,6 @@ There is a long literature applying Reinforcement Learning (RL) to natural langu
 
 We refer to [Luketina et al. (2019)](https://arxiv.org/abs/1906.03926) for a survey of RL tasks involving language as a component, and for RL results using transfer learning from language.
 
-【总结完全文再来看 introduction 部分的实验总结】
-
 ## Methods
 We will first use human labels to train a reward model, and then optimize this reward model.
 
@@ -78,6 +76,7 @@ $x$ is sampled from BookCorpus dataset with a length of 32 to 64 tokens, and pol
 Train a reward function $r_s$ by training a classifier (a transformer with 6 layers, 8 attention heads, embed size 512) on a binarized, balanced sumsample of Amazon Review dataset. $r_s(x, y)$ is the logP of a review being positive. (i.e., encourage the policy to generate positive reviews)
 
 ![mock sentiment learning curve (KL 8)](/static/mock-curves.svg)
+
 where direct means direct RL access to $r_s$.
 
 Because we know the reward function $r_s$, we can also analytically compute the optimal policy. The optimal policy has the form: $\pi_{opt}(y|x) \propto \rho(y|x)e^{r_s/\beta}$
@@ -93,13 +92,47 @@ Descriptiveness task: encourage "vividly descriptive" continuations
 x is sampled from Bookcorpus, starting and ending with a period. Rejection sampling is used to ensure there is a period between continuation tokens 16 and 24 and then truncate at that period. During RL fine-tuning, we penalize continuations that don't have such a period by giving a fixed reward of -1.
 
 We dynamically adjust $\beta$ to obtain a KL of 6 nats for descriptiveness and 10 nats for sentiment.
+
 ![sentiment compare to ref](/static/sentiment_compare_to_ref.svg)
 
 ![descriptiveness compare to ref](/static/descriptiveness_compare_to_ref.svg)
 
 ![human evaluations for continuations](/static/human%20evaluations%20for%20continuations.png)
 
+### Summarization
+$x$ is sampled from CNN/Daily Mail or the TL;DR dataset, truncating up to 500 tokens at the last newline article, and add a "\n\nTL;DR:" suffix (and for CNN/Daily Mail, a "Article:\n\" prefix. 
 
+$\pi$ responds with up to 75 tokens. T=0.5 for CNN/Daily mail, and T=0.7 for TL;DR. If there is no newline token between 55 and 75, set the reward score to -1.
+KL coefficient $\beta=0.1$ for CNN/Daily mail and $\beta=0.03$ for TL;DR.
+
+Model baselines
+* the zero-shot pretrained language model
+* supervised fine-tuned
+* lead-3 baseline
+* supervised + RL fine-tuned
+* purely RL fine-tuned
+
+Two sets of numerical results: human evaluations and ROGUE.
+
+ROGUE results suggest that
+* online data collection is important for best performance
+* more human labels, better results
+* supervised + RL finetuning is the best
+
+Human evaluations use 1024 samples with majority vote of 3 labelers per sample.
+Here is picture is different, though also significantly noiser.
+(Here the 60k pure RL model beats the supervised + RL tuned model ?)
+
+Copy behavior:
+* Purely RL tuned copy whole sentences 71% of the time for TL;DR and 98% for CNN/Daily Mail, and varies on what it copies from.
+* Supverised + RL copies only 6% and 30% for TL;DR and cnn/dm.
+
+
+## Challenges
+* Online data collection is hard
+* Sharing parameters between reward model and policy causes overfitting
+* Ambiguous tasks make labeling hard
+* Bugs can optimize for bad behavior
 
 
 
