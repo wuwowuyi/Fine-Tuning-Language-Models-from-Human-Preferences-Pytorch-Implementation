@@ -40,7 +40,8 @@ def filter_fn_from_hparams(hparams: TaskHParams):
             matches_token = torch.eq(responses[:, hparams.truncate_after:], hparams.truncate_token)
             return torch.any(matches_token, dim=-1)
         else:
-            return torch.ones(responses.shape[0], dtype=torch.bool)
+            device = utils.get_device(responses)
+            return torch.ones(responses.shape[0], dtype=torch.bool, device=device)
     return filter
 
 
