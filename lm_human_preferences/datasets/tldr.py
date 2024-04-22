@@ -1,9 +1,10 @@
+import concurrent.futures
+import json
 import os
 import re
 
 import ftfy
 import numpy as np
-import pandas as pd
 import tiktoken
 
 from lm_human_preferences.datasets import books
@@ -18,15 +19,11 @@ def get_batch(data, batch_size):
 
 
 def process(example):
-    text = ftfy.fix_text(example)
+    text = ftfy.fix_text(example['content'])
     text = re.sub(r"\n{3,}", "\n\n", text)
     ids = enc.encode_ordinary(text.strip())  # encode_ordinary ignores any special tokens
     ids.append(enc.eot_token)  # add the end of text token, e.g. 50256 for gpt2 bpe
     return ids, len(ids)
-
-
-def cat(series: pd.Series):
-    return np.concatenate(series.to_numpy())
 
 
 def prepare_tldr():
@@ -42,20 +39,21 @@ def prepare_tldr():
 
     for split, file in zip(('train','val'), (train_file, val_file)):
         with open(file) as f:
-            df = pd.read_json(f)
+            data = json.load(f)
 
-        ids, ids_size = zip(*df['content'].map(process))
-        arr_len = np.sum(ids_size, dtype=np.int64)
-        print(f"content average length is {round(arr_len / len(ids))}")
+        tokenized = []
+        arr_len = 0
+        chunk_size = len(data) // os.cpu_count()
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            for ids, ids_size in executor.map(process, data, chunksize=chunk_size):
+                arr_len += ids_size
+                tokenized.extend(ids)
 
+        print(f"arr len is {arr_len}")
         filename = os.path.join(os.path.dirname(__file__), f'{dataset_name}_{split}.bin')
         dtype = np.uint16  # (can do since enc.max_token_value == 50256 is < 2**16)
         arr = np.memmap(filename, dtype=dtype, mode='w+', shape=(arr_len,))
-        chunks = np.array_split(pd.Series(ids), 128)
-        idx = 0
-        for chunk in map(cat, chunks):  # 128 is arbitrary
-            arr[idx: idx + len(chunk)] = chunk
-            idx += len(chunk)
+        arr[:] = tokenized[:]
         arr.flush()
 
 
