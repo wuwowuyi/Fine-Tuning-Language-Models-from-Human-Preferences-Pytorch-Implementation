@@ -336,7 +336,7 @@ def make_score_fn(hparams: TaskHParams, score_model: RewardModel):
     return score_fn
 
 
-def log_samples(encoder, hparams: TrainPolicyParams, to_print: dict):
+def log_samples(global_step, encoder, hparams: TrainPolicyParams, to_print: dict):
     queries, responses, scores = to_print['queries'], to_print['responses'], to_print['scores']
     logprobs, ref_logprobs = to_print['logprobs'], to_print['ref_logprobs']
 
@@ -348,10 +348,11 @@ def log_samples(encoder, hparams: TrainPolicyParams, to_print: dict):
             "kl": sample_kl,
             "total": scores[i] - hparams.rewards.kl_coef * sample_kl
         })
-        q = str(encoder.decode(queries[i][:hparams.task.query_length]).replace("\n", "⏎"))
-        print(f'queries: {q}')
-        r = str(encoder.decode(responses[i]).replace("\n", "⏎"))
-        print(f'responses: {r}')
+        if global_step % (hparams.run.log_interval * 10) == 0:
+            q = str(encoder.decode(queries[i][:hparams.task.query_length]).replace("\n", "⏎"))
+            print(f'queries: {q}')
+            r = str(encoder.decode(responses[i]).replace("\n", "⏎"))
+            print(f'responses: {r}')
 
 
 def train(hparams: TrainPolicyParams):
@@ -427,7 +428,7 @@ def train(hparams: TrainPolicyParams):
             if params.master_process:
                 if hparams.run.wandb_log and global_step % hparams.run.log_interval == 0:
                     wandb.log(stats)  #TODO: review
-                    log_samples(encoder, hparams, to_print)
+                    log_samples(global_step, encoder, hparams, to_print)
 
                 if global_step % hparams.run.save_interval == 0:
                     policy.save(global_step, ppo_trainer.kl_ctl.value)
