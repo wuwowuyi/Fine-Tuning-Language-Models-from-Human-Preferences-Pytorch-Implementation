@@ -22,7 +22,7 @@ $\displaystyle loss(r) = -E_{(x, \\{y_i\\}_i, b)\sim S}[\log\frac{e^{r(x, y_b)}}
 (Note: the original paper does not have the minus sign. But as a loss, there should be a minus sign here, i.e., negative log probability)
 
 The reward model is initialized as a random linear function on top of a language model $\rho$.
-(NOTE: My understanding is, $\rho$ is fixed, being a pretained + SFT language model, even in the online data collection case, when there are multiple RL training iterations.)
+(NOTE: My understanding is, reward model is always initiated from $\rho$, a pretained + SFT language model, even in the online data collection case when the reward model is trained multiple times.)
 
 To keep the scale of the reward model consistent across training, we normalize it so that it has mean 0 and variance 1 for $x \sim D, y \sim \rho(\cdot|x)$.
 
