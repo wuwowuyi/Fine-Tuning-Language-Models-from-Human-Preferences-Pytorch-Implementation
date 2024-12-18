@@ -1,4 +1,6 @@
-# Paper Summarization
+# RLHF Paper Summarization
+
+My notes on paper, [Fine-Tuning Language Models from Human Preferences](https://arxiv.org/abs/1909.08593). 
 
 ## Introduction
 Humans need to specify goals to AI agents using natural language, and AI agents need to communicate back to a human using natural language too.
@@ -14,15 +16,21 @@ We will first use human labels to train a reward model, and then optimize this r
 Following [Christiano et al. (2017)](https://arxiv.org/abs/1706.03741), we ask human labelers to pick which of several values of $y_i$ is the best response to a given input $x$. (In early experiments, we found it was hard for humans to provide consistent fine-grained quantitative distinctions when asked for an absolute number, and experiments on synthetic tasks confirmed that comparisons were almost as useful.)
 
 Let $b \in \{0, 1, 2, 3\}$ be the option human labelers select from four options $(y_0, y_1, y_2, y_3)$. Having collected a dataset $S$ of $(x, y_0, y_1, y_2, y_3, b)$ tuples, we fit a reward model $r: X \times Y \to R$ using the loss:
-$loss(r) = -E_{(x, \{y_i\}_i, b)\sim S}[log\Large{\frac{e^{r(x, y_b)}}{\sum_ie^{r(x, y_i)}}}]$
+
+$\displaystyle loss(r) = -E_{(x, \\{y_i\\}_i, b)\sim S}[\log\frac{e^{r(x, y_b)}}{\sum_ie^{r(x, y_i)}}]$
+
 (Note: the original paper does not have the minus sign. But as a loss, there should be a minus sign here, i.e., negative log probability)
 
 The reward model is initialized as a random linear function on top of a language model $\rho$.
+(NOTE: My understanding is, $\rho$ is fixed, being a pretained + SFT language model, even in the online data collection case, when there are multiple RL training iterations.)
+
 To keep the scale of the reward model consistent across training, we normalize it so that it has mean 0 and variance 1 for $x \sim D, y \sim \rho(\cdot|x)$.
 
-We also initialize a policy $\pi = \rho$, and finetune it to optimize the reward model $r$ via Proximal Policy Optimization (PPO) with a modified reward: $R(x, y)=r(x, y) - \beta log\large{\frac{\pi(y|x)}{\rho(y|x)}}$
+We also initialize a policy $\pi = \rho$, and finetune it to optimize the reward model $r$ via Proximal Policy Optimization (PPO) with a modified reward: 
 
-The term $-\beta log\large{\frac{\pi(y|x)}{\rho(y|x)}}$ acts as an entropy bonus (i.e. $-log\pi$) and KL penalty (i.e. $log\pi - log\rho$) to prevent $\pi$ from moving too far away from $\rho$.
+$R(x, y)=r(x, y) - \beta \cdot \log\large{\frac{\pi(y|x)}{\rho(y|x)}}$
+
+The term $-\beta \cdot \log\large{\frac{\pi(y|x)}{\rho(y|x)}}$ acts as an entropy bonus (i.e. $-\log\pi$) and KL penalty (i.e. $\log\pi - \log\rho$) to prevent $\pi$ from moving too far away from $\rho$.
 
 In the online data collection case, we continue to collect additional samples, and periodically retrain the reward $r$, and then optimize $\pi$ against $r$.
 
@@ -45,8 +53,11 @@ The learning rate was $1.41 \times 10^{-5}$ for style tasks, and $7.07 \times 10
 
 Models trained with different seeds and the same KL penalty $\beta$ sometimes end up with quite different values of $KL(\pi, \rho)$, making them hard to compare. 
 To fix this, **for some experiments we dynamically vary $\beta$ to target a particular value of $KL(\pi, \rho)$** using log-space proportional controller:
-$e_t = clip(\large{\frac{KL(\pi_t, \rho) - KL_{target}}{KL_{target}}}, -0.2, 0.2)$, 
+
+$\displaystyle e_t = clip(\frac{KL(\pi_t, \rho) - KL_{target}}{KL_{target}}, -0.2, 0.2)$, 
+
 $\beta_{t+1} = \beta_t(1+K_{\beta}e_t)$, and we used $K_{\beta} = 0.1$.
+
 i.e. when at an iteration step $t$, the $KL(\pi_t, \rho)$ is larger than a target KL penalty, $\beta_{t+1}$ for the next iteration is increased, otherwise decreased.
 
 **For supervised fine-tuning baseline**, we finetune for 1 epoch on the CNN/Daily Mail and TL;DR training sets. For TL;DR we removed 30K examples to serve as a validation set. Training use cosine schedule, initial learning rate was selected by sweep over 8 log-linearly spaced options between $10^{-4}$ and $3 \times 10^{-4}$.
