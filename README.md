@@ -1,7 +1,7 @@
 
 # lm-human-preferences
 
-This repo is my rewrite in Pytorch 2.0 of [lm-human-preferences](https://github.com/openai/lm-human-preferences) which contains code for the paper [Fine-Tuning Language Models from Human Preferences](https://arxiv.org/abs/1909.08593), implemented using Tensorflow v1.
+This repo is my rewrite in Pytorch 2.0 of [lm-human-preferences](https://github.com/openai/lm-human-preferences) which is Tensorflow v1 implementation of the paper [Fine-Tuning Language Models from Human Preferences](https://arxiv.org/abs/1909.08593).
 
 This paper is OpenAI’s original RLHF work from 2019. See [my notes of this paper](Paper.md). 
 
@@ -15,9 +15,9 @@ In addition to a rewrite in Pytorch 2.0, other changes I made:
 ### Reward
 The reward model is formulated as a classification model in the same way as a language model.
 
-A linear layer on top of transformer converts output embeddings to scalar rewards which is treated as raw logits of a Categorical distribution, with the best response as the "true" label. 
+A linear layer on top of the underlying transformer converts output embeddings to a scalar reward which is treated as raw logit of a Categorical distribution, with the best response as the "true" label. 
 
-For example, for a data point $(x, y_0, y_1, y_2, y_3, b)$, $x$ is concatenated with $y_0$, $y_1$, $y_2$ and $y_3$ respectively as input, and the reward model computes 4 scalar rewards $r_1, r_2, r_3, r_4$ which are treated as raw logits of a 4-class Categorical distribution, the best response $b \in \{0, 1, 2, 3\}$ is the true label. And then we compute the cross entropy loss for each data point.
+Specifically, for a data point tuple $(x, y_0, y_1, y_2, y_3, b)$, $x$ is concatenated respectively with $y_0$, $y_1$, $y_2$ and $y_3$ as input, and the reward model computes 4 scalar rewards $r_0, r_1, r_2, r_3$ which are treated as raw logits of a 4-class Categorical distribution with the best response $b \in \{0, 1, 2, 3\}$ as the true label. And then we compute the cross entropy loss.
 
 Here $x$ corresponds to the state $s$ in Reinforcement Learning (RL), and $y_0$, $y_1$, $y_2$ and $y_3$ are seen as different actions $a$. Therefore, the reward model gives a scalar reward $r$ for each $(s, a)$ pair.
 
@@ -37,41 +37,41 @@ Notations:
 * $R$ reward model, initialized from $\rho$
 * $\pi$ policy model, initialized from $\rho$
 * $\pi_{ref}$ reference policy, initialized from $\rho$. no training on it, so $\pi_{ref} = \rho$.
-* human labelled dataset $S$, like descriptiveness offline 5k
+* human labelled dataset $S$, like descriptiveness offline 5k, each data point is a $(x, y_0, y_1, y_2, y_3, b)$ tuple
 * dataset $D$, such as the bookcorpus dataset
-* $x$ query
+* $x$ query, ie., prompt
 * $y$ response
 
 ### Reward Training
-Reward training is formulated as a classification problem where the labels are the best responses picked by human.
+Reward training is formulated as a classification problem where the labels are the best responses picked by human labelers.
 
 * First, initialize $R$ and $\pi$. Here $\pi$ is only used a language model to generate responses to queries.
 * Second, download $S$ and store in `SampleBuffer`.
-* Third, set rewards gain $g_r$ and bias $b_r$ of $R$
+* Third, set rewards gain $g_r$ and bias $b_r$ of $R$ so that the output rewards will have roughly mean 0 and variance 1
   * sample a batch of $x$ from $D$
   * ask $\pi$ to generate responses $y$, ie, $y \sim \pi(y|x)$
   * ask $R$ to compute rewards for each pair of $(x, y)$ to get rewards mean and variance
-  * set $g$ and $b$ so that the output rewards will have roughly mean 0 and variance 1.
+  * set $g_r$ and $b_r$ to have zero mean and standard deviation
 * Fourth, train one epoch of $R$ on $S$.
-* Lastly, repeat third step to update $g_r$ and $b_r$ so that output reward $\sim N(0, I)$.
+* Lastly, repeat the third step to update $g_r$ and $b_r$ so that output reward $\sim N(0, I)$.
 
 ### Policy Training
 
 * Load trained $R$, initialize $\pi$ and $\pi_{ref}$.
 * sample a mini-batch of rollouts
-  * $\pi$ generates given length of $y$ for batched $x$ sampled from $D$, $y \sim \pi(y|x)$
-  * each $y$ is post processed by replacing all tokens with the padding token after the first `truncate_token` after number of `truncate_after` tokens. The `truncate_after` is, for example, 16 for sentiment task, and 55 for cnndm. `truncate_token` is the period `.` or `\n`.
-  * if $y$ contains no `truncate_token`, the reward is `-1`, otherwise $R$ computes a reward for (y, x).
-  * computes $\log \pi_{ref}(y|x)$ by feeding (x, y) into the policy reference model
+  * $\pi$ generates given length of $y$ for batched $x$ sampled from $D$, ie, $y \sim \pi(y|x)$, $x \sim D$
+  * each $y$ is post processed by replacing all tokens after the first `truncate_token` after number of `truncate_after` tokens with the the padding token. The `truncate_after` is, for example, 16 for sentiment task, and 55 for cnndm. `truncate_token` is the period `.` or `\n`.
+  * if $y$ contains no `truncate_token`, the reward is `-1`, otherwise $R$ computes a reward for $(x, y)$.
+  * computes $\log \pi_{ref}(y|x)$ by feeding $(x, y)$ into the policy reference model
   * compute per step reward $r_t = -\beta \cdot D_{KL}(\pi||\pi_{ref}) = -\beta \cdot (\log \pi(y|x) - \log \pi_{ref}(y|x))$
   * add rewards computed from $R$ onto the last step
-  * as a result, the rollouts contains a collection of (queries $x$, responses $y$, rewards $r$, state values $V((x, y))$, and $\log \pi(y|x)$), each with `shape=(batch_size, query_length)`. The batch size can be as low as 8 on one GPU.
-* compute `loss = pg_loss + self.hparams.ppo.vf_coef * vf_loss`, where `pg_loss` is the policy loss, and `vf_loss` is the state value loss.
+  * as a result, the rollouts contains a collection of queries $x$, responses $y$, rewards $r$, state values $V(x, y)$, and $\log\pi(y|x)$, each with `shape=(batch_size, query_length)`. The batch size can be as low as 8 on one GPU.
+* compute `loss = pg_loss + vf_coef * vf_loss`, where `pg_loss` is the policy loss, `vf_loss` is the state value loss, and hyperparameter `vf_coef` is a coefficient with default value 0.1
   * first compute advantages, as described in the [PPO paper](https://arxiv.org/abs/1707.06347). (details can also see [GAE paper](https://arxiv.org/abs/1506.02438))
   * `pg_loss` is computed as described in the PPO paper.
-  * `loss` contains a value function error term $vf\_loss = (V_\theta(s_t) - V_t^{targ})^2$ because policy and state value share the underlying transformer
-    * where $V_t^{targ} = advantages + values$ where values is from the sampled rollouts. Entropy bonus described in the paper is contained in advantages.
-    * clipping is also used to prevent `vf_loss` from becoming smaller, because smaller loss would allow model parameters to drift farther.
+  * `loss` contains a value function error term `vf_loss =` $(V_\theta(s_t) - V_t^{targ})^2$ because policy and state value share the underlying transformer
+    * where $V_t^{targ}$ `= advantages + values` where `values` are from the sampled rollouts. Entropy bonus described in the paper is contained in `advantages`.
+    * clipping is also used to prevent `vf_loss` from becoming too small, because smaller loss would allow model parameters to drift farther.
   
 
 ## Experiment Setup
@@ -89,11 +89,11 @@ Details see `saved_models/prepare_pytorch_checkpoint.py`.
 OpenAI's books dataset link is broken, I use [bookcorpus](https://huggingface.co/datasets/bookcorpus) dataset hosted by Hugging face.
 To prepare book dataset, run `datasets/books.py`.
 
-To prepare cnndm dataset (cnn daily mail, also from Hugging face), run `datasets/cnndm.py`.
+To prepare cnndm dataset ([cnn daily mail](https://huggingface.co/datasets/abisee/cnn_dailymail), also from Hugging face), run `datasets/cnndm.py`.
 
-To prepare for tldr dataset, run `datasets/tldr.py` which will download OpenAI's tldr dataset hosted on Azure.
+To prepare for tldr dataset, run `datasets/tldr.py` which will download and process OpenAI's tldr dataset hosted on Azure.
 
-The generated datasets are under `datasets`, for example, `bookcorpus_train.bin`.
+The generated datasets are located under `datasets`, for example, `bookcorpus_train.bin`.
 
 ### Run
 
