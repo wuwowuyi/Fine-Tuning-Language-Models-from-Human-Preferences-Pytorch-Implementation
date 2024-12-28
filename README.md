@@ -3,7 +3,7 @@
 
 This repo is my rewrite in Pytorch 2.0 of [lm-human-preferences](https://github.com/openai/lm-human-preferences) which is Tensorflow v1 implementation of the paper [Fine-Tuning Language Models from Human Preferences](https://arxiv.org/abs/1909.08593).
 
-This paper is OpenAI’s original RLHF work from 2019. See [my notes of this paper](Paper.md). 
+This paper is OpenAI’s original RLHF work from 2019. See [my notes of this paper](Paper.md), and also [a brief summary of other OpenAI's RLHF paper and DPO](https://github.com/wuwowuyi/direct-preference-optimization/tree/main). 
 
 In addition to a rewrite in Pytorch 2.0, other changes I made:
 * Removed all the MPI code, and use [Pytorch DDP](https://pytorch.org/tutorials/intermediate/ddp_tutorial.html) to train on multiple GPUs.
